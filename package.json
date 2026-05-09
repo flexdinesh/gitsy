@@ -1,0 +1,29 @@
+{
+  "name": "gitsy",
+  "version": "0.1.0",
+  "description": "Show git status across child repositories and worktrees",
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": {
+    "gitsy": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "pnpm typecheck",
+    "test": "node --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "ink": "latest",
+    "react": "latest",
+    "string-width": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "typescript": "latest"
+  }
+}
