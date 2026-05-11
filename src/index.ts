@@ -4,10 +4,7 @@ import {render} from "ink";
 import React from "react";
 import {parseArgs, USAGE} from "./args.ts";
 import {discoverRepos} from "./discover.ts";
-import {getShortStatus} from "./git.ts";
-import {parseStatus} from "./status.ts";
 import {App} from "./ui/App.ts";
-import type {RepoStatus} from "./ui/table.ts";
 
 const h = React.createElement;
 
@@ -38,38 +35,23 @@ async function main(): Promise<void> {
   }
 
   const warn = (message: string) => process.stderr.write(`gitsy: warning: ${message}\n`);
-  const repos = discoverRepos({cwd: process.cwd(), maxDepth: options.maxDepth, verbose: options.verbose, warn});
-  const repoStatuses: RepoStatus[] = [];
-
-  for (const repo of repos) {
-    const statusResult = getShortStatus(repo.path);
-    if (!statusResult.ok) {
-      if (options.verbose) {
-        warn(`Failed to read status for ${repo.displayName}: ${statusResult.stderr.trim() || `git exited ${statusResult.status ?? "unknown"}`}`);
-      }
-      continue;
-    }
-
-    const status = parseStatus(statusResult.stdout);
-    if (options.all || status.changed) {
-      repoStatuses.push({repo, status});
-    }
-  }
-
-  const message = createEmptyMessage(repos.length, repoStatuses.length, options.all);
+  const repos = discoverRepos({cwd: options.dir, maxDepth: options.maxDepth, verbose: options.verbose, warn});
+  const message = createEmptyMessage(repos.length, 0, options.all);
 
   if (options.fullscreen) {
-    await renderFullscreen(repoStatuses, options.all, repos.length, message);
+    await renderFullscreen(repos, options.all, options.noFetch, repos.length, message, warn);
     return;
   }
 
   const instance = render(
     h(App, {
-      repos: repoStatuses,
+      repos,
       fullscreen: false,
+      noFetch: options.noFetch,
       message,
       showAll: options.all,
       totalDiscovered: repos.length,
+      warn: options.verbose ? warn : undefined,
     }),
     {exitOnCtrlC: true},
   );
@@ -88,7 +70,7 @@ function createEmptyMessage(totalDiscovered: number, shown: number, showAll: boo
   return undefined;
 }
 
-async function renderFullscreen(repos: RepoStatus[], showAll: boolean, totalDiscovered: number, message: string | undefined): Promise<void> {
+async function renderFullscreen(repos: ReturnType<typeof discoverRepos>, showAll: boolean, noFetch: boolean, totalDiscovered: number, message: string | undefined, warn?: (message: string) => void): Promise<void> {
   let cleanedUp = false;
 
   const cleanup = () => {
@@ -113,9 +95,11 @@ async function renderFullscreen(repos: RepoStatus[], showAll: boolean, totalDisc
       h(App, {
         repos,
         fullscreen: true,
+        noFetch,
         message,
         showAll,
         totalDiscovered,
+        warn,
       }),
       {exitOnCtrlC: false},
     );

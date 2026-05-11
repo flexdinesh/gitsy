@@ -3,6 +3,8 @@ export type CliOptions = {
   maxDepth: number;
   fullscreen: boolean;
   verbose: boolean;
+  noFetch: boolean;
+  dir: string;
   help: boolean;
   version: boolean;
 };
@@ -20,8 +22,10 @@ Show git status across child repositories and linked worktrees.
 Options:
   --all              Show all discovered repositories, including clean repos
   --max-depth <n>    Scan repository directories up to n nested levels (default: 3)
+  --dir <path>       Start scanning from <path> instead of the current directory
   --fullscreen       Open a scrollable fullscreen terminal UI
   --verbose          Print warnings for skipped repos and failed git commands
+  --no-fetch         Skip fetching upstream changes (use local status only)
   --help             Show this help message
   --version          Show package version
 `;
@@ -32,6 +36,8 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     maxDepth: DEFAULT_MAX_DEPTH,
     fullscreen: false,
     verbose: false,
+    noFetch: false,
+    dir: process.cwd(),
     help: false,
     version: false,
   };
@@ -55,6 +61,30 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 
     if (arg === "--verbose") {
       options.verbose = true;
+      continue;
+    }
+
+    if (arg === "--no-fetch") {
+      options.noFetch = true;
+      continue;
+    }
+
+    if (arg === "--dir") {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        return { ok: false, error: "Missing value for --dir" };
+      }
+      options.dir = value;
+      index += 1;
+      continue;
+    }
+
+    if (arg?.startsWith("--dir=")) {
+      const value = arg.slice("--dir=".length);
+      if (value === "") {
+        return { ok: false, error: "Missing value for --dir" };
+      }
+      options.dir = value;
       continue;
     }
 

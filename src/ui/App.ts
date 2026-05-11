@@ -1,9 +1,12 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {Box, Text, useApp, useInput, useStdout} from "ink";
-import type {RepoStatus, TableLayout, VisualRow} from "./table.ts";
+import type {DiscoveredRepo} from "../discover.ts";
+import {fetchAll, getShortStatus} from "../git.ts";
+import {parseStatus} from "../status.ts";
+import type {RepoFetchState, TableLayout, VisualRow} from "./table.ts";
 import {
   bottomBorder,
-  buildVisualRows,
+  buildVisualRowsFromFetchState,
   createTableLayout,
   formatCell,
   headerDivider,
@@ -15,30 +18,111 @@ import {
 const h = React.createElement;
 
 export type AppProps = {
-  repos: readonly RepoStatus[];
+  repos: readonly DiscoveredRepo[];
   fullscreen: boolean;
+  noFetch: boolean;
   message: string | undefined;
   showAll: boolean;
   totalDiscovered: number;
+  warn?: ((message: string) => void) | undefined;
 };
 
 export function App(props: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdout} = useStdout();
   const [scrollOffset, setScrollOffset] = useState(0);
-  const terminalHeight = stdout.rows ?? 24;
-  const layout = useMemo(() => createTableLayout(stdout.columns, props.repos), [stdout.columns, props.repos]);
-  const rows = useMemo(() => buildVisualRows(props.repos), [props.repos]);
-  const viewportHeight = props.fullscreen ? Math.max(1, terminalHeight - 8) : rows.length;
-  const maxScroll = Math.max(0, rows.length - viewportHeight);
+  const [fetchStates, setFetchStates] = useState<Record<string, RepoFetchState>>({});
 
+  // Initialise every repo as fetching
   useEffect(() => {
-    if (!props.fullscreen) {
+    const initial: Record<string, RepoFetchState> = {};
+    for (const repo of props.repos) {
+      initial[repo.realPath] = {kind: "fetching"};
+    }
+    setFetchStates(initial);
+  }, [props.repos]);
+
+  // Kick off async fetch + status for every repo
+  useEffect(() => {
+    if (props.repos.length === 0) return;
+
+    for (const repo of props.repos) {
+      if (props.noFetch) {
+        runStatusOnly(repo);
+      } else {
+        fetchAll(repo.path).then((fetchResult) => {
+          if (!fetchResult.ok && props.warn !== undefined) {
+            props.warn(
+              `Fetch failed for ${repo.displayName}: ${fetchResult.stderr.trim() || `git exited ${fetchResult.status ?? "unknown"}`}`,
+            );
+          }
+          runStatusAfterFetch(repo);
+        });
+      }
+    }
+
+    function runStatusOnly(repo: DiscoveredRepo): void {
+      const statusResult = getShortStatus(repo.path);
+      updateState(repo, statusResult);
+    }
+
+    function runStatusAfterFetch(repo: DiscoveredRepo): void {
+      const statusResult = getShortStatus(repo.path);
+      updateState(repo, statusResult);
+    }
+
+    function updateState(repo: DiscoveredRepo, statusResult: ReturnType<typeof getShortStatus>): void {
+      if (!statusResult.ok) {
+        if (props.warn !== undefined) {
+          props.warn(
+            `Failed to read status for ${repo.displayName}: ${statusResult.stderr.trim() || `git exited ${statusResult.status ?? "unknown"}`}`,
+          );
+        }
+        setFetchStates((prev) => ({
+          ...prev,
+          [repo.realPath]: {kind: "failed", status: parseStatus("")},
+        }));
+        return;
+      }
+      const status = parseStatus(statusResult.stdout);
+      setFetchStates((prev) => ({
+        ...prev,
+        [repo.realPath]: {kind: "done", status},
+      }));
+    }
+  }, [props.repos, props.noFetch, props.warn]);
+
+  // In static mode, exit once every repo has reached done or failed
+  useEffect(() => {
+    if (props.fullscreen) return undefined;
+    if (props.repos.length === 0) {
       const timer = setTimeout(() => exit(), 0);
       return () => clearTimeout(timer);
     }
+    const allComplete = props.repos.every((repo) => {
+      const state = fetchStates[repo.realPath];
+      return state !== undefined && state.kind !== "fetching";
+    });
+    if (allComplete) {
+      const timer = setTimeout(() => exit(), 50);
+      return () => clearTimeout(timer);
+    }
     return undefined;
-  }, [exit, props.fullscreen]);
+  }, [props.fullscreen, props.repos, fetchStates, exit]);
+
+  const terminalHeight = stdout.rows ?? 24;
+  const stateMap = useMemo(() => {
+    const map = new Map<string, RepoFetchState>();
+    for (const [key, value] of Object.entries(fetchStates)) {
+      map.set(key, value);
+    }
+    return map;
+  }, [fetchStates]);
+
+  const layout = useMemo(() => createTableLayout(stdout.columns, props.repos), [stdout.columns, props.repos]);
+  const rows = useMemo(() => buildVisualRowsFromFetchState(props.repos, stateMap, props.showAll), [props.repos, stateMap, props.showAll]);
+  const viewportHeight = props.fullscreen ? Math.max(1, terminalHeight - 8) : rows.length;
+  const maxScroll = Math.max(0, rows.length - viewportHeight);
 
   useEffect(() => {
     setScrollOffset((current) => Math.min(current, maxScroll));
@@ -91,7 +175,8 @@ export function App(props: AppProps): React.ReactElement {
   );
 
   const visibleRows = props.fullscreen ? rows.slice(scrollOffset, scrollOffset + viewportHeight) : rows;
-  const title = createTitle(props.totalDiscovered, props.repos.length, props.showAll, props.fullscreen, scrollOffset, maxScroll);
+  const shownCount = countVisibleRepos(props.repos, stateMap, props.showAll);
+  const title = createTitle(props.totalDiscovered, shownCount, props.showAll, props.fullscreen, scrollOffset, maxScroll);
 
   return h(
     Box,
@@ -101,7 +186,7 @@ export function App(props: AppProps): React.ReactElement {
     h(Text, {color: "gray"}, headerDivider(layout)),
     h(HeaderRow, {layout}),
     h(Text, {color: "gray"}, headerDivider(layout)),
-    props.message !== undefined || props.repos.length === 0
+    rows.length === 0
       ? h(EmptyRow, {layout, message: props.message ?? "No repositories to display."})
       : visibleRows.map((row, index) => h(TableRow, {key: `${index}-${row.kind}-${scrollOffset}`, layout, row})),
     h(Text, {color: "gray"}, bottomBorder(layout)),
@@ -109,6 +194,21 @@ export function App(props: AppProps): React.ReactElement {
       ? h(Text, {dimColor: true}, "↑/k ↓/j page u/d home g end G quit q/esc")
       : undefined,
   );
+}
+
+function countVisibleRepos(repos: readonly DiscoveredRepo[], states: Map<string, RepoFetchState>, showAll: boolean): number {
+  let count = 0;
+  for (const repo of repos) {
+    const state = states.get(repo.realPath);
+    if (state === undefined || state.kind === "fetching") {
+      count += 1;
+      continue;
+    }
+    if (state.status.changed || showAll) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function HeaderRow(props: {layout: TableLayout}): React.ReactElement {

@@ -64,3 +64,22 @@ test("discovers linked worktrees from a discovered repo", {skip: !gitAvailable()
     assert.deepEqual(names, ["linked-worktree", "repo"]);
   });
 });
+
+test("CLI --no-fetch renders repo status without fetching", {skip: !gitAvailable()}, () => {
+  withTempDir((directory) => {
+    const repo = path.join(directory, "repo");
+    mkdirSync(repo);
+    runGit(repo, ["init"]);
+    writeFileSync(path.join(repo, "README.md"), "hello\n");
+
+    const cliPath = path.resolve(import.meta.dirname, "..", "src", "index.ts");
+    const result = spawnSync("node", [cliPath, "--no-fetch"], {
+      cwd: directory,
+      encoding: "utf8",
+      env: {...process.env, FORCE_COLOR: "0", CI: "true"},
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.ok(result.stdout.includes("repo"), `Expected output to include repo name: ${result.stdout}`);
+  });
+});

@@ -1,4 +1,4 @@
-import {spawnSync} from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 export type GitResult = {
   ok: boolean;
@@ -26,7 +26,7 @@ export function getTopLevel(repoPath: string): GitResult {
 }
 
 export function getShortStatus(repoPath: string): GitResult {
-  return runGit(repoPath, ["status", "--short", "--branch", "--renames", "--ahead-behind"]);
+  return runGit(repoPath, ["status", "--short", "--branch", "--ahead-behind"]);
 }
 
 export function getWorktreeList(repoPath: string): GitResult {
@@ -43,4 +43,47 @@ export function parseWorktreePaths(porcelain: string): string[] {
   }
 
   return paths;
+}
+
+export function fetchAll(repoPath: string, timeoutMs = 30_000): Promise<GitResult> {
+  return new Promise((resolve) => {
+    const child = spawn("git", ["-C", repoPath, "fetch", "--all"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, timeoutMs);
+
+    child.on("close", (status) => {
+      clearTimeout(timer);
+      resolve({
+        ok: status === 0,
+        stdout,
+        stderr,
+        status,
+      });
+    });
+
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({
+        ok: false,
+        stdout,
+        stderr: error.message,
+        status: null,
+      });
+    });
+  });
 }

@@ -8,6 +8,11 @@ export type RepoStatus = {
   status: ParsedStatus;
 };
 
+export type RepoFetchState =
+  | {kind: "fetching"}
+  | {kind: "done"; status: ParsedStatus}
+  | {kind: "failed"; status: ParsedStatus};
+
 export type VisualRow =
   | {kind: "separator"}
   | {kind: "data"; repo: string; text: string; color: InkColor; bold?: boolean | undefined; dim?: boolean | undefined};
@@ -18,9 +23,9 @@ export type TableLayout = {
   statusWidth: number;
 };
 
-export function createTableLayout(terminalWidth: number | undefined, repos: readonly RepoStatus[]): TableLayout {
+export function createTableLayout(terminalWidth: number | undefined, repos: readonly DiscoveredRepo[]): TableLayout {
   const width = Math.max(60, Math.min(terminalWidth ?? 80, 140));
-  const longestRepoName = Math.max(4, ...repos.map((repo) => stringWidth(repo.repo.displayName)));
+  const longestRepoName = Math.max(4, ...repos.map((repo) => stringWidth(repo.displayName)));
   const repoWidth = clamp(longestRepoName, 18, Math.floor(width * 0.35));
   const statusWidth = Math.max(24, width - repoWidth - 7);
 
@@ -60,6 +65,87 @@ export function buildVisualRows(repos: readonly RepoStatus[]): VisualRow[] {
       rows.push(formatItemRow(item));
     }
   });
+
+  return rows;
+}
+
+export function buildVisualRowsFromFetchState(
+  repos: readonly DiscoveredRepo[],
+  states: ReadonlyMap<string, RepoFetchState>,
+  showAll: boolean,
+): VisualRow[] {
+  const rows: VisualRow[] = [];
+  let hasVisibleRow = false;
+
+  for (const repo of repos) {
+    const state = states.get(repo.realPath);
+    const repoRows = buildRowsForRepo(repo, state, showAll);
+
+    if (repoRows.length === 0) {
+      continue;
+    }
+
+    if (hasVisibleRow) {
+      rows.push({kind: "separator"});
+    }
+
+    rows.push(...repoRows);
+    hasVisibleRow = true;
+  }
+
+  return rows;
+}
+
+function buildRowsForRepo(
+  repo: DiscoveredRepo,
+  state: RepoFetchState | undefined,
+  showAll: boolean,
+): VisualRow[] {
+  if (state === undefined || state.kind === "fetching") {
+    return [
+      {
+        kind: "data",
+        repo: repo.displayName,
+        text: "⏳ fetching…",
+        color: "yellow",
+        dim: true,
+      },
+    ];
+  }
+
+  const status = state.status;
+  const isStale = state.kind === "failed";
+
+  if (!status.changed && !showAll) {
+    return [];
+  }
+
+  const rows: VisualRow[] = [];
+  const branchSummary = formatBranchSummary(status);
+
+  if (isStale) {
+    branchSummary.text += " ⚠ stale";
+  }
+
+  rows.push({
+    kind: "data",
+    repo: repo.displayName,
+    text: branchSummary.text,
+    color: branchSummary.color,
+    bold: true,
+    dim: branchSummary.dim,
+  });
+
+  if (status.items.length === 0) {
+    if (!status.changed) {
+      rows.push({kind: "data", repo: "", text: "✓ clean", color: "green", dim: true});
+    }
+    return rows;
+  }
+
+  for (const item of status.items) {
+    rows.push(formatItemRow(item));
+  }
 
   return rows;
 }
@@ -113,7 +199,7 @@ export function padEndVisible(value: string, width: number): string {
   return `${value}${" ".repeat(Math.max(0, width - stringWidth(value)))}`;
 }
 
-function formatBranchSummary(status: ParsedStatus): {text: string; color: InkColor; dim?: boolean} {
+export function formatBranchSummary(status: ParsedStatus): {text: string; color: InkColor; dim?: boolean} {
   const branch = status.branch;
   if (branch === undefined) {
     return status.changed ? {text: "changes", color: "yellow"} : {text: "✓ clean", color: "green", dim: true};
