@@ -73,13 +73,14 @@ export function buildVisualRowsFromFetchState(
   repos: readonly DiscoveredRepo[],
   states: ReadonlyMap<string, RepoFetchState>,
   showAll: boolean,
+  fetchingText: string,
 ): VisualRow[] {
   const rows: VisualRow[] = [];
   let hasVisibleRow = false;
 
   for (const repo of repos) {
     const state = states.get(repo.realPath);
-    const repoRows = buildRowsForRepo(repo, state, showAll);
+    const repoRows = buildRowsForRepo(repo, state, showAll, fetchingText);
 
     if (repoRows.length === 0) {
       continue;
@@ -100,13 +101,14 @@ function buildRowsForRepo(
   repo: DiscoveredRepo,
   state: RepoFetchState | undefined,
   showAll: boolean,
+  fetchingText: string,
 ): VisualRow[] {
   if (state === undefined || state.kind === "fetching") {
     return [
       {
         kind: "data",
         repo: repo.displayName,
-        text: "⏳ fetching…",
+        text: fetchingText,
         color: "yellow",
         dim: true,
       },

@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {Box, Text, useApp, useInput, useStdout} from "ink";
+import ora from "ora";
 import type {DiscoveredRepo} from "../discover.ts";
 import {fetchAll, getShortStatus} from "../git.ts";
 import {parseStatus} from "../status.ts";
@@ -30,6 +31,8 @@ export type AppProps = {
 export function App(props: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdout} = useStdout();
+  const spinner = useMemo(() => ora({text: "fetching…", color: false}), []);
+  const [spinnerTick, setSpinnerTick] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [fetchStates, setFetchStates] = useState<Record<string, RepoFetchState>>({});
 
@@ -118,9 +121,20 @@ export function App(props: AppProps): React.ReactElement {
     }
     return map;
   }, [fetchStates]);
+  const hasFetching = hasFetchingRepos(props.repos, stateMap);
+  const fetchingText = useMemo(() => (hasFetching ? spinner.frame() : "fetching…"), [hasFetching, spinner, spinnerTick]);
+
+  useEffect(() => {
+    if (!hasFetching) {
+      return undefined;
+    }
+
+    const timer = setInterval(() => setSpinnerTick((current) => current + 1), spinner.interval);
+    return () => clearInterval(timer);
+  }, [hasFetching, spinner]);
 
   const layout = useMemo(() => createTableLayout(stdout.columns, props.repos), [stdout.columns, props.repos]);
-  const rows = useMemo(() => buildVisualRowsFromFetchState(props.repos, stateMap, props.showAll), [props.repos, stateMap, props.showAll]);
+  const rows = useMemo(() => buildVisualRowsFromFetchState(props.repos, stateMap, props.showAll, fetchingText), [props.repos, stateMap, props.showAll, fetchingText]);
   const viewportHeight = props.fullscreen ? Math.max(1, terminalHeight - 8) : rows.length;
   const maxScroll = Math.max(0, rows.length - viewportHeight);
 
@@ -209,6 +223,17 @@ function countVisibleRepos(repos: readonly DiscoveredRepo[], states: Map<string,
     }
   }
   return count;
+}
+
+function hasFetchingRepos(repos: readonly DiscoveredRepo[], states: Map<string, RepoFetchState>): boolean {
+  for (const repo of repos) {
+    const state = states.get(repo.realPath);
+    if (state === undefined || state.kind === "fetching") {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function HeaderRow(props: {layout: TableLayout}): React.ReactElement {

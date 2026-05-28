@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "ink": "latest",
+    "ora": "^9.4.0",
     "react": "latest",
     "string-width": "latest"
   },
