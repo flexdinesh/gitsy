@@ -17,6 +17,7 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
+    "gitsy": "link:",
     "ink": "latest",
     "ora": "^9.4.0",
     "react": "latest",

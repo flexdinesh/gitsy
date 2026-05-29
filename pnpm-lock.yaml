@@ -4,10 +4,16 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  gitsy: 'link:'
+
 importers:
 
   .:
     dependencies:
+      gitsy:
+        specifier: 'link:'
+        version: 'link:'
       ink:
         specifier: latest
         version: 7.0.4(@types/react@19.2.15)(react@19.2.6)
