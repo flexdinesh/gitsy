@@ -51,6 +51,7 @@ gitsy
 gitsy --all
 gitsy --max-depth 5
 gitsy --fullscreen
+gitsy --sync
 ```
 
 ## Usage
@@ -66,6 +67,7 @@ Options:
 --max-depth <n>    Scan repo dirs up to n levels deep; default 3
 --fullscreen       Open a scrollable fullscreen UI
 --verbose          Show warnings for skipped repos/git errors
+--sync             Fast-forward repos that can safely update without conflicts (always fetches)
 --help             Show help
 --version          Show version
 ```

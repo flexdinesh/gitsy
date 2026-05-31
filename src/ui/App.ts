@@ -2,8 +2,9 @@ import React, {useEffect, useMemo, useState} from "react";
 import {Box, Text, useApp, useInput, useStdout} from "ink";
 import ora from "ora";
 import type {DiscoveredRepo} from "../discover.ts";
-import {fetchAll, getShortStatus} from "../git.ts";
-import {parseStatus} from "../status.ts";
+import {fetchAll, fastForward, getShortStatus} from "../git.ts";
+import {canFastForward, parseStatus} from "../status.ts";
+import type {ParsedStatus} from "../status.ts";
 import type {RepoFetchState, TableLayout, VisualRow} from "./table.ts";
 import {
   bottomBorder,
@@ -22,6 +23,7 @@ export type AppProps = {
   repos: readonly DiscoveredRepo[];
   fullscreen: boolean;
   noFetch: boolean;
+  sync: boolean;
   message: string | undefined;
   showAll: boolean;
   totalDiscovered: number;
@@ -88,12 +90,54 @@ export function App(props: AppProps): React.ReactElement {
         return;
       }
       const status = parseStatus(statusResult.stdout);
+
+      if (props.sync && canFastForward(status)) {
+        syncRepo(repo, status);
+        return;
+      }
+
       setFetchStates((prev) => ({
         ...prev,
         [repo.realPath]: {kind: "done", status},
       }));
     }
-  }, [props.repos, props.noFetch, props.warn]);
+
+    function syncRepo(repo: DiscoveredRepo, preSyncStatus: ParsedStatus): void {
+      const pulled = preSyncStatus.branch?.behind ?? 0;
+      setFetchStates((prev) => ({
+        ...prev,
+        [repo.realPath]: {kind: "syncing"},
+      }));
+
+      const ffResult = fastForward(repo.path);
+      if (!ffResult.ok) {
+        if (props.warn !== undefined) {
+          props.warn(
+            `Sync failed for ${repo.displayName}: ${ffResult.stderr.trim() || `git exited ${ffResult.status ?? "unknown"}`}`,
+          );
+        }
+        setFetchStates((prev) => ({
+          ...prev,
+          [repo.realPath]: {
+            kind: "done",
+            status: preSyncStatus,
+            sync: {kind: "failed", reason: ffResult.stderr.trim()},
+          },
+        }));
+        return;
+      }
+
+      const postStatus = parseStatus(getShortStatus(repo.path).stdout);
+      setFetchStates((prev) => ({
+        ...prev,
+        [repo.realPath]: {
+          kind: "done",
+          status: postStatus,
+          sync: {kind: "synced", pulled},
+        },
+      }));
+    }
+  }, [props.repos, props.noFetch, props.sync, props.warn]);
 
   // In static mode, exit once every repo has reached done or failed
   useEffect(() => {
@@ -104,7 +148,7 @@ export function App(props: AppProps): React.ReactElement {
     }
     const allComplete = props.repos.every((repo) => {
       const state = fetchStates[repo.realPath];
-      return state !== undefined && state.kind !== "fetching";
+      return state !== undefined && state.kind !== "fetching" && state.kind !== "syncing";
     });
     if (allComplete) {
       const timer = setTimeout(() => exit(), 50);
@@ -214,11 +258,11 @@ function countVisibleRepos(repos: readonly DiscoveredRepo[], states: Map<string,
   let count = 0;
   for (const repo of repos) {
     const state = states.get(repo.realPath);
-    if (state === undefined || state.kind === "fetching") {
+    if (state === undefined || state.kind === "fetching" || state.kind === "syncing") {
       count += 1;
       continue;
     }
-    if (state.status.changed || showAll) {
+    if (state.status.changed || showAll || (state.kind === "done" && state.sync?.kind === "synced")) {
       count += 1;
     }
   }
@@ -228,7 +272,7 @@ function countVisibleRepos(repos: readonly DiscoveredRepo[], states: Map<string,
 function hasFetchingRepos(repos: readonly DiscoveredRepo[], states: Map<string, RepoFetchState>): boolean {
   for (const repo of repos) {
     const state = states.get(repo.realPath);
-    if (state === undefined || state.kind === "fetching") {
+    if (state === undefined || state.kind === "fetching" || state.kind === "syncing") {
       return true;
     }
   }

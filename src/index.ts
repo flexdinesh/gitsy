@@ -37,9 +37,10 @@ async function main(): Promise<void> {
   const warn = (message: string) => process.stderr.write(`gitsy: warning: ${message}\n`);
   const repos = discoverRepos({cwd: options.dir, maxDepth: options.maxDepth, verbose: options.verbose, warn});
   const message = createEmptyMessage(repos.length, 0, options.all);
+  const noFetch = options.sync ? false : options.noFetch;
 
   if (options.fullscreen) {
-    await renderFullscreen(repos, options.all, options.noFetch, repos.length, message, warn);
+    await renderFullscreen(repos, options.all, noFetch, options.sync, repos.length, message, warn);
     return;
   }
 
@@ -47,7 +48,8 @@ async function main(): Promise<void> {
     h(App, {
       repos,
       fullscreen: false,
-      noFetch: options.noFetch,
+      noFetch,
+      sync: options.sync,
       message,
       showAll: options.all,
       totalDiscovered: repos.length,
@@ -70,7 +72,7 @@ function createEmptyMessage(totalDiscovered: number, shown: number, showAll: boo
   return undefined;
 }
 
-async function renderFullscreen(repos: ReturnType<typeof discoverRepos>, showAll: boolean, noFetch: boolean, totalDiscovered: number, message: string | undefined, warn?: (message: string) => void): Promise<void> {
+async function renderFullscreen(repos: ReturnType<typeof discoverRepos>, showAll: boolean, noFetch: boolean, sync: boolean, totalDiscovered: number, message: string | undefined, warn?: (message: string) => void): Promise<void> {
   let cleanedUp = false;
 
   const cleanup = () => {
@@ -96,6 +98,7 @@ async function renderFullscreen(repos: ReturnType<typeof discoverRepos>, showAll
         repos,
         fullscreen: true,
         noFetch,
+        sync,
         message,
         showAll,
         totalDiscovered,

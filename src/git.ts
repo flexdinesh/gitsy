@@ -33,6 +33,10 @@ export function getWorktreeList(repoPath: string): GitResult {
   return runGit(repoPath, ["worktree", "list", "--porcelain"]);
 }
 
+export function fastForward(repoPath: string): GitResult {
+  return runGit(repoPath, ["merge", "--ff-only"]);
+}
+
 export function parseWorktreePaths(porcelain: string): string[] {
   const paths: string[] = [];
 

@@ -5,8 +5,8 @@ import {mkdtempSync, mkdirSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import path from "node:path";
 import {discoverRepos} from "../src/discover.ts";
-import {getShortStatus} from "../src/git.ts";
-import {parseStatus} from "../src/status.ts";
+import {fastForward, getShortStatus} from "../src/git.ts";
+import {canFastForward, parseStatus} from "../src/status.ts";
 
 function gitAvailable(): boolean {
   return spawnSync("git", ["--version"], {encoding: "utf8"}).status === 0;
@@ -81,5 +81,75 @@ test("CLI --no-fetch renders repo status without fetching", {skip: !gitAvailable
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.ok(result.stdout.includes("repo"), `Expected output to include repo name: ${result.stdout}`);
+  });
+});
+
+test("--sync safely fast-forwards a clone that is strictly behind", {skip: !gitAvailable()}, () => {
+  withTempDir((directory) => {
+    const origin = path.join(directory, "origin");
+    const clone = path.join(directory, "clone");
+    mkdirSync(origin);
+    runGit(origin, ["init"]);
+    runGit(origin, ["config", "user.email", "gitsy@example.com"]);
+    runGit(origin, ["config", "user.name", "Gitsy Test"]);
+    writeFileSync(path.join(origin, "README.md"), "one\n");
+    runGit(origin, ["add", "README.md"]);
+    runGit(origin, ["commit", "-m", "first"]);
+
+    runGit(directory, ["clone", origin, clone]);
+    runGit(clone, ["config", "user.email", "gitsy@example.com"]);
+    runGit(clone, ["config", "user.name", "Gitsy Test"]);
+
+    writeFileSync(path.join(origin, "README.md"), "one\ntwo\n");
+    runGit(origin, ["add", "README.md"]);
+    runGit(origin, ["commit", "-m", "second"]);
+
+    runGit(clone, ["fetch"]);
+    const before = parseStatus(getShortStatus(clone).stdout);
+    assert.equal(before.branch?.behind, 1);
+    assert.equal(before.branch?.ahead, 0);
+    assert.equal(canFastForward(before), true);
+
+    const ff = fastForward(clone);
+    assert.equal(ff.ok, true, ff.stderr);
+
+    const after = parseStatus(getShortStatus(clone).stdout);
+    assert.equal(after.branch?.behind, 0);
+    assert.equal(canFastForward(after), false);
+  });
+});
+
+test("--sync refuses to fast-forward a diverged clone", {skip: !gitAvailable()}, () => {
+  withTempDir((directory) => {
+    const origin = path.join(directory, "origin");
+    const clone = path.join(directory, "clone");
+    mkdirSync(origin);
+    runGit(origin, ["init"]);
+    runGit(origin, ["config", "user.email", "gitsy@example.com"]);
+    runGit(origin, ["config", "user.name", "Gitsy Test"]);
+    writeFileSync(path.join(origin, "README.md"), "one\n");
+    runGit(origin, ["add", "README.md"]);
+    runGit(origin, ["commit", "-m", "first"]);
+
+    runGit(directory, ["clone", origin, clone]);
+    runGit(clone, ["config", "user.email", "gitsy@example.com"]);
+    runGit(clone, ["config", "user.name", "Gitsy Test"]);
+
+    writeFileSync(path.join(origin, "README.md"), "one\norigin\n");
+    runGit(origin, ["add", "README.md"]);
+    runGit(origin, ["commit", "-m", "origin change"]);
+
+    writeFileSync(path.join(clone, "LOCAL.md"), "local\n");
+    runGit(clone, ["add", "LOCAL.md"]);
+    runGit(clone, ["commit", "-m", "local change"]);
+
+    runGit(clone, ["fetch"]);
+    const status = parseStatus(getShortStatus(clone).stdout);
+    assert.equal(status.branch?.ahead, 1);
+    assert.equal(status.branch?.behind, 1);
+    assert.equal(canFastForward(status), false);
+
+    const ff = fastForward(clone);
+    assert.equal(ff.ok, false);
   });
 });

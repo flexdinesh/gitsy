@@ -8,9 +8,14 @@ export type RepoStatus = {
   status: ParsedStatus;
 };
 
+export type SyncOutcome =
+  | {kind: "synced"; pulled: number}
+  | {kind: "failed"; reason: string};
+
 export type RepoFetchState =
   | {kind: "fetching"}
-  | {kind: "done"; status: ParsedStatus}
+  | {kind: "syncing"}
+  | {kind: "done"; status: ParsedStatus; sync?: SyncOutcome | undefined}
   | {kind: "failed"; status: ParsedStatus};
 
 export type VisualRow =
@@ -115,10 +120,23 @@ function buildRowsForRepo(
     ];
   }
 
+  if (state.kind === "syncing") {
+    return [
+      {
+        kind: "data",
+        repo: repo.displayName,
+        text: "syncing…",
+        color: "yellow",
+        dim: true,
+      },
+    ];
+  }
+
   const status = state.status;
   const isStale = state.kind === "failed";
+  const sync = state.kind === "done" ? state.sync : undefined;
 
-  if (!status.changed && !showAll) {
+  if (!status.changed && !showAll && sync?.kind !== "synced") {
     return [];
   }
 
@@ -127,6 +145,15 @@ function buildRowsForRepo(
 
   if (isStale) {
     branchSummary.text += " ⚠ stale";
+  }
+
+  if (sync?.kind === "synced") {
+    branchSummary.text += ` ⤓ synced ↓${sync.pulled}`;
+    branchSummary.color = "green";
+    branchSummary.dim = false;
+  } else if (sync?.kind === "failed") {
+    branchSummary.text += " ⚠ sync failed";
+    branchSummary.color = "yellow";
   }
 
   rows.push({

@@ -4,6 +4,7 @@ export type CliOptions = {
   fullscreen: boolean;
   verbose: boolean;
   noFetch: boolean;
+  sync: boolean;
   dir: string;
   help: boolean;
   version: boolean;
@@ -26,6 +27,7 @@ Options:
   --fullscreen       Open a scrollable fullscreen terminal UI
   --verbose          Print warnings for skipped repos and failed git commands
   --no-fetch         Skip fetching upstream changes (use local status only)
+  --sync             Fast-forward repos that can safely update without conflicts (always fetches)
   --help             Show this help message
   --version          Show package version
 `;
@@ -37,6 +39,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     fullscreen: false,
     verbose: false,
     noFetch: false,
+    sync: false,
     dir: process.cwd(),
     help: false,
     version: false,
@@ -66,6 +69,11 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 
     if (arg === "--no-fetch") {
       options.noFetch = true;
+      continue;
+    }
+
+    if (arg === "--sync") {
+      options.sync = true;
       continue;
     }
 

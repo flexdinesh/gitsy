@@ -43,6 +43,21 @@ export function hasChangesOrDivergence(status: string): boolean {
   return false;
 }
 
+export function canFastForward(status: ParsedStatus): boolean {
+  const branch = status.branch;
+  if (branch === undefined || branch.name === "") {
+    return false;
+  }
+
+  return (
+    branch.upstream !== undefined &&
+    !branch.gone &&
+    branch.behind > 0 &&
+    branch.ahead === 0 &&
+    status.items.length === 0
+  );
+}
+
 export function parseStatus(status: string): ParsedStatus {
   const lines = status.split(/\r?\n/).filter((line) => line !== "");
   const branchLine = lines.find((line) => line.startsWith("## "));

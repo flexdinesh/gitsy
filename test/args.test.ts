@@ -13,17 +13,19 @@ test("parseArgs returns defaults", () => {
   assert.equal(result.options.noFetch, false);
   assert.equal(result.options.help, false);
   assert.equal(result.options.version, false);
+  assert.equal(result.options.sync, false);
   assert.equal(typeof result.options.dir, "string");
 });
 
 test("parseArgs supports flags", () => {
-  const result = parseArgs(["--all", "--fullscreen", "--verbose", "--no-fetch", "--help", "--version"]);
+  const result = parseArgs(["--all", "--fullscreen", "--verbose", "--no-fetch", "--sync", "--help", "--version"]);
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.options.all, true);
   assert.equal(result.options.fullscreen, true);
   assert.equal(result.options.verbose, true);
   assert.equal(result.options.noFetch, true);
+  assert.equal(result.options.sync, true);
   assert.equal(result.options.help, true);
   assert.equal(result.options.version, true);
 });
