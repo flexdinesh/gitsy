@@ -35,8 +35,8 @@ gitsy
 For a local build without installing globally:
 
 ```bash
-go build -o gitsy ./cmd/gitsy
-./gitsy
+go build -o bin/gitsy ./cmd/gitsy
+./bin/gitsy
 ```
 
 ## Usage
