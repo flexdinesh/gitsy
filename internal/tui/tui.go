@@ -254,6 +254,9 @@ func (model Model) tableRows() []table.Row {
 	for _, row := range rows {
 		repo := ""
 		if row.Repo != "" && row.Repo != previousRepo {
+			if previousRepo != "" {
+				tableRows = append(tableRows, table.Row{"", ""})
+			}
 			repo = row.Repo
 			previousRepo = row.Repo
 		}

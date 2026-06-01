@@ -213,6 +213,22 @@ func TestTableRowsUseContinuationRowsForRepoStatus(t *testing.T) {
 	}
 }
 
+func TestTableRowsAddSpacingBetweenRepos(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")}, true)
+
+	rows := model.tableRows()
+
+	if len(rows) != 3 {
+		t.Fatalf("expected two repo groups separated by one blank row, got %d rows: %#v", len(rows), rows)
+	}
+	if rows[1][0] != "" || rows[1][1] != "" {
+		t.Fatalf("expected blank spacer row between repos, got %#v", rows)
+	}
+	if rows[2][0] != "repo-b" {
+		t.Fatalf("expected second repo after spacer row, got %#v", rows)
+	}
+}
+
 func newTestModel(repos []discover.Repo, showAll bool) Model {
 	return newModel(context.Background(), nil, repos, showAll, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
 		return ui.RepoResult{
