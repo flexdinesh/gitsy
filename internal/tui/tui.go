@@ -22,6 +22,7 @@ const (
 	minWidth       = 32
 	minTableHeight = 4
 	maxInspecting  = 8
+	columnGap      = 2
 )
 
 type Model struct {
@@ -282,7 +283,7 @@ func (model Model) renderStatusCell(row ui.Row) string {
 }
 
 func columnWidths(width int, results []ui.RepoResult) (int, int) {
-	contentWidth := max(16, width-4)
+	contentWidth := max(16, width-columnGap*2)
 	longestRepoName := runewidth.StringWidth("REPO")
 	for _, result := range results {
 		longestRepoName = max(longestRepoName, runewidth.StringWidth(result.Repo.DisplayName))
@@ -307,10 +308,11 @@ func tableStyles() table.Styles {
 	styles.Header = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
 		Bold(true).
+		PaddingRight(columnGap).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("8")).
 		BorderBottom(true)
-	styles.Cell = lipgloss.NewStyle()
+	styles.Cell = lipgloss.NewStyle().PaddingRight(columnGap)
 	styles.Selected = styles.Cell
 	return styles
 }

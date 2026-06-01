@@ -229,6 +229,24 @@ func TestTableRowsAddSpacingBetweenRepos(t *testing.T) {
 	}
 }
 
+func TestTableColumnsHaveSpacingAndFitWidth(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+	model.updateTableWithSize(40, 10)
+
+	columns := model.repos.Columns()
+	if len(columns) != 2 {
+		t.Fatalf("expected two columns, got %#v", columns)
+	}
+	if columns[0].Width+columns[1].Width+columnGap*len(columns) > model.repos.Width() {
+		t.Fatalf("expected columns plus spacing to fit table width, got columns %#v and width %d", columns, model.repos.Width())
+	}
+
+	cell := lipgloss.NewStyle().Width(columns[0].Width).MaxWidth(columns[0].Width).Inline(true).Render("repo")
+	if got := tableStyles().Cell.Render(cell); !strings.HasSuffix(got, strings.Repeat(" ", columnGap)) {
+		t.Fatalf("expected repo cell to end with column spacing, got %q", got)
+	}
+}
+
 func newTestModel(repos []discover.Repo, showAll bool) Model {
 	return newModel(context.Background(), nil, repos, showAll, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
 		return ui.RepoResult{
