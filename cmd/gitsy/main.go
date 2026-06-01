@@ -6,9 +6,7 @@ import (
 
 	"github.com/flexdinesh/gitsy/internal/args"
 	"github.com/flexdinesh/gitsy/internal/discover"
-	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/tui"
-	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/flexdinesh/gitsy/internal/version"
 )
 
@@ -63,19 +61,5 @@ func run(argv []string) error {
 		processWarn = warn
 	}
 
-	if shouldRenderTUI(os.Stdout) {
-		return tui.Run(os.Stdout, repos, options.All, noFetch, options.Sync, processWarn)
-	}
-
-	results := inspect.Repos(repos, noFetch, options.Sync, processWarn)
-	ui.Render(os.Stdout, results, options.All, len(repos), ui.EmptyMessage(len(repos), options.All))
-	return nil
-}
-
-func shouldRenderTUI(file *os.File) bool {
-	stat, err := file.Stat()
-	if err != nil {
-		return false
-	}
-	return stat.Mode()&os.ModeCharDevice != 0
+	return tui.Run(os.Stdout, repos, options.All, noFetch, options.Sync, processWarn)
 }

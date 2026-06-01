@@ -63,26 +63,6 @@ func TestDiscoversLinkedWorktreesFromDiscoveredRepo(t *testing.T) {
 	}
 }
 
-func TestCLINoFetchRendersRepoStatus(t *testing.T) {
-	requireGit(t)
-	dir := t.TempDir()
-	repo := filepath.Join(dir, "repo")
-	mkdirAll(t, repo)
-	runGit(t, repo, "init")
-	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
-
-	cmd := exec.Command("go", "run", filepath.Join(projectRoot(t), "cmd", "gitsy"), "--no-fetch")
-	cmd.Env = append(os.Environ(), "FORCE_COLOR=0", "CI=true")
-	cmd.Dir = dir
-	result, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go run failed: %v\n%s", err, result)
-	}
-	if !strings.Contains(string(result), "repo") {
-		t.Fatalf("expected output to include repo name: %s", result)
-	}
-}
-
 func TestSyncSafelyFastForwardsStrictlyBehindClone(t *testing.T) {
 	requireGit(t)
 	dir := t.TempDir()
@@ -188,13 +168,4 @@ func writeFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func projectRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dir
 }

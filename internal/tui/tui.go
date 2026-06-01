@@ -6,17 +6,21 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/flexdinesh/gitsy/internal/discover"
 	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/ui"
+	"github.com/mattn/go-runewidth"
 )
 
 type inspector func(discover.Repo, bool, bool, func(string)) ui.RepoResult
 
-const minWidth = 20
+const (
+	minWidth       = 32
+	minTableHeight = 4
+)
 
 type Model struct {
 	results []ui.RepoResult
@@ -25,7 +29,7 @@ type Model struct {
 	sync    bool
 	warn    func(string)
 	spin    spinner.Model
-	repos   viewport.Model
+	repos   table.Model
 	width   int
 	height  int
 	done    int
@@ -70,7 +74,10 @@ func newModel(repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool,
 		sync:    syncRepos,
 		warn:    warn,
 		spin:    spin,
-		repos:   viewport.New(0, 0),
+		repos: table.New(
+			table.WithFocused(true),
+			table.WithStyles(tableStyles()),
+		),
 		inspect: inspect,
 	}
 }
@@ -95,14 +102,14 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		model.width = msg.Width
 		model.height = msg.Height
-		model.updateViewport()
+		model.updateTable()
 		return model, nil
 	case repoDoneMsg:
 		if msg.index >= 0 && msg.index < len(model.results) && model.results[msg.index].Loading {
 			model.results[msg.index] = msg.result
 			model.done++
 		}
-		model.updateViewport()
+		model.updateTable()
 		return model, nil
 	case spinner.TickMsg:
 		if model.done >= len(model.results) {
@@ -110,7 +117,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var command tea.Cmd
 		model.spin, command = model.spin.Update(msg)
-		model.updateViewport()
+		model.updateTable()
 		return model, command
 	}
 
@@ -120,20 +127,22 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) View() string {
-	if model.width == 0 || model.height == 0 {
-		return model.renderLegacy()
+	width := model.width
+	height := model.height
+	if width == 0 {
+		width = 80
+	}
+	if height == 0 {
+		height = 24
 	}
 
-	width := max(model.width, minWidth)
+	width = max(width, minWidth)
 	title := model.renderTitle(width)
 	titleHeight := lipgloss.Height(title)
-	repoHeight := max(5, model.height-titleHeight-1)
-	if repoHeight > model.height-titleHeight {
-		repoHeight = max(1, model.height-titleHeight)
-	}
+	repoHeight := max(minTableHeight+2, height-titleHeight-1)
 
-	model.updateViewport()
-	return strings.Join([]string{title, model.renderRepoSection(width, repoHeight)}, "\n")
+	model.updateTableWithSize(width, repoHeight-2)
+	return strings.Join([]string{title, model.renderTable(width, repoHeight)}, "\n")
 }
 
 func (model Model) inspectRepo(index int, repo discover.Repo) tea.Cmd {
@@ -155,20 +164,15 @@ func isQuitKey(message tea.KeyMsg) bool {
 	return message.String() == "q" || message.String() == "Q" || message.String() == "ctrl+c"
 }
 
-func (model *Model) updateViewport() {
+func (model *Model) updateTable() {
 	if model.width == 0 || model.height == 0 {
 		return
 	}
 
 	width := max(model.width, minWidth)
 	titleHeight := lipgloss.Height(model.renderTitle(width))
-	repoHeight := max(5, model.height-titleHeight-1)
-	viewportHeight := max(1, repoHeight-4)
-	layout := ui.CreateFullWidthLayout(width, model.results)
-
-	model.repos.Width = max(1, layout.Width-4)
-	model.repos.Height = viewportHeight
-	model.repos.SetContent(strings.Join(ui.RenderRows(layout, model.resultsWithSpinner(), model.showAll, ui.EmptyMessage(len(model.results), model.showAll)), "\n"))
+	repoHeight := max(minTableHeight+2, model.height-titleHeight-1)
+	model.updateTableWithSize(width, repoHeight-2)
 }
 
 func (model Model) renderTitle(width int) string {
@@ -181,48 +185,25 @@ func (model Model) renderTitle(width int) string {
 		mode = "sync"
 	}
 
-	innerWidth := max(1, width-4)
-	title := ui.FormatCell(ui.Title(model.results, model.showAll, len(model.results))+fmtStatus(mode, pending), innerWidth)
-
-	return strings.Join([]string{
-		style("cyan").Render("╭" + strings.Repeat("─", width-2) + "╮"),
-		style("white").Render("│ " + title + " │"),
-		style("cyan").Render("╰" + strings.Repeat("─", width-2) + "╯"),
-	}, "\n")
+	title := ui.Title(model.results, model.showAll, len(model.results)) + fmtStatus(mode, pending)
+	return frameStyle(width, 1).Render(titleStyle(width).Render(title))
 }
 
-func (model Model) renderRepoSection(width int, height int) string {
-	layout := ui.CreateFullWidthLayout(width, model.results)
-	sectionWidth := layout.Width
-	contentWidth := max(1, sectionWidth-4)
-	viewportHeight := max(1, height-4)
+func (model *Model) updateTableWithSize(width int, height int) {
+	tableWidth := max(1, width-4)
+	repoWidth, statusWidth := columnWidths(tableWidth, model.results)
 
-	model.repos.Width = contentWidth
-	model.repos.Height = viewportHeight
-
-	lines := []string{
-		style("gray").Render("╭" + strings.Repeat("─", sectionWidth-2) + "╮"),
-		style("white").Render("│ " + ui.FormatCell(ui.RenderHeader(layout), contentWidth) + " │"),
-		style("gray").Render("├" + strings.Repeat("─", sectionWidth-2) + "┤"),
-	}
-
-	viewLines := strings.Split(model.repos.View(), "\n")
-	for len(viewLines) < viewportHeight {
-		viewLines = append(viewLines, "")
-	}
-	for _, line := range viewLines[:viewportHeight] {
-		if line == "" {
-			line = strings.Repeat(" ", contentWidth)
-		}
-		lines = append(lines, "│ "+line+" │")
-	}
-
-	lines = append(lines, style("gray").Render("╰"+strings.Repeat("─", sectionWidth-2)+"╯"))
-	return strings.Join(lines, "\n")
+	model.repos.SetColumns([]table.Column{
+		{Title: "REPO", Width: repoWidth},
+		{Title: "STATUS", Width: statusWidth},
+	})
+	model.repos.SetRows(model.tableRows())
+	model.repos.SetWidth(tableWidth)
+	model.repos.SetHeight(max(minTableHeight, height))
 }
 
-func (model Model) renderLegacy() string {
-	return ui.RenderString(model.resultsWithSpinner(), model.showAll, len(model.results), ui.EmptyMessage(len(model.results), model.showAll))
+func (model Model) renderTable(width int, height int) string {
+	return frameStyle(width, max(minTableHeight, height-2)).Render(model.repos.View())
 }
 
 func (model Model) resultsWithSpinner() []ui.RepoResult {
@@ -236,6 +217,56 @@ func (model Model) resultsWithSpinner() []ui.RepoResult {
 	return results
 }
 
+func (model Model) tableRows() []table.Row {
+	results := model.resultsWithSpinner()
+	tableRows := make([]table.Row, 0, len(results))
+	for _, result := range results {
+		rows := ui.RowsForRepo(result, model.showAll)
+		if len(rows) == 0 {
+			continue
+		}
+
+		for index, row := range rows {
+			repo := ""
+			if index == 0 {
+				repo = row.Repo
+			}
+			tableRows = append(tableRows, table.Row{
+				repo,
+				model.renderStatusCell(row),
+			})
+		}
+	}
+
+	if len(tableRows) == 0 {
+		message := ui.EmptyMessage(len(model.results), model.showAll)
+		if message == "" {
+			message = "No repositories to display."
+		}
+		return []table.Row{{"", message}}
+	}
+
+	return tableRows
+}
+
+func (model Model) renderStatusCell(row ui.Row) string {
+	return toneStyle(row.Tone, row.Bold, row.Dim).Render(row.Text)
+}
+
+func columnWidths(width int, results []ui.RepoResult) (int, int) {
+	contentWidth := max(16, width-4)
+	longestRepoName := runewidth.StringWidth("REPO")
+	for _, result := range results {
+		longestRepoName = max(longestRepoName, runewidth.StringWidth(result.Repo.DisplayName))
+	}
+
+	maxRepoWidth := max(8, contentWidth*35/100)
+	minRepoWidth := min(18, maxRepoWidth)
+	repoWidth := clamp(longestRepoName, minRepoWidth, maxRepoWidth)
+	statusWidth := max(8, contentWidth-repoWidth)
+	return repoWidth, statusWidth
+}
+
 func fmtStatus(mode string, pending int) string {
 	if pending <= 0 {
 		return " • done"
@@ -243,16 +274,59 @@ func fmtStatus(mode string, pending int) string {
 	return " • " + mode + " • " + strconv.Itoa(pending) + " pending"
 }
 
-func style(tone string) lipgloss.Style {
-	base := lipgloss.NewStyle()
+func tableStyles() table.Styles {
+	styles := table.DefaultStyles()
+	styles.Header = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Bold(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		BorderBottom(true)
+	styles.Cell = lipgloss.NewStyle()
+	styles.Selected = styles.Cell
+	return styles
+}
+
+func frameStyle(width int, height int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Width(max(1, width-2)).
+		Height(max(1, height)).
+		Padding(0, 1)
+}
+
+func titleStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("14")).
+		Bold(true).
+		MaxWidth(max(1, width-4))
+}
+
+func toneStyle(tone string, bold bool, dim bool) lipgloss.Style {
+	style := lipgloss.NewStyle().Bold(bold).Faint(dim)
 	switch tone {
+	case "red":
+		return style.Foreground(lipgloss.Color("9"))
+	case "green":
+		return style.Foreground(lipgloss.Color("10"))
+	case "yellow":
+		return style.Foreground(lipgloss.Color("11"))
+	case "blue":
+		return style.Foreground(lipgloss.Color("12"))
+	case "magenta":
+		return style.Foreground(lipgloss.Color("13"))
 	case "cyan":
-		return base.Foreground(lipgloss.Color("14"))
-	case "white":
-		return base.Foreground(lipgloss.Color("15")).Bold(true)
+		return style.Foreground(lipgloss.Color("14"))
 	case "gray":
-		return base.Foreground(lipgloss.Color("8"))
+		return style.Foreground(lipgloss.Color("8"))
+	case "white":
+		return style.Foreground(lipgloss.Color("15"))
 	default:
-		return base
+		return style
 	}
+}
+
+func clamp(value int, minValue int, maxValue int) int {
+	return max(minValue, min(value, maxValue))
 }

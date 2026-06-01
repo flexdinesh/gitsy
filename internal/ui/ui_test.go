@@ -2,6 +2,7 @@ package ui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/flexdinesh/gitsy/internal/discover"
@@ -49,20 +50,44 @@ func TestBuildRowsShowsLoadingRepoWhenAllIsFalse(t *testing.T) {
 	}
 }
 
-func TestFormatCellTruncatesAndPadsByVisibleWidth(t *testing.T) {
-	if got := FormatCell("abcdef", 4); got != "abc…" {
-		t.Fatalf("expected abc…, got %q", got)
-	}
-	if got := FormatCell("ok", 4); got != "ok  " {
-		t.Fatalf("expected padded cell, got %q", got)
-	}
-}
-
 func TestFormatBranchSummary(t *testing.T) {
 	parsed := status.Parse("## main...origin/main [ahead 1, behind 2]\n")
 	got := FormatBranchSummary(parsed)
 	want := BranchSummary{Text: "main ↑1 ↓2", Tone: "blue"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+}
+
+func TestBuildRowsUsesGitStatusLabelsAndTones(t *testing.T) {
+	repo := discover.Repo{
+		Path:        "/tmp/repo",
+		RealPath:    "/tmp/repo",
+		DisplayName: "repo",
+		Source:      discover.SourceScan,
+	}
+	rows := BuildRows([]RepoResult{{
+		Repo: repo,
+		Status: status.Parse(strings.Join([]string{
+			"## main",
+			"A  added.go",
+			" D removed.go",
+			"?? untracked.go",
+		}, "\n")),
+	}}, false)
+
+	got := map[string]string{}
+	for _, row := range rows {
+		got[row.Text] = row.Tone
+	}
+
+	if got["+ added added.go"] != "green" {
+		t.Fatalf("expected added row to be green, got %#v", got)
+	}
+	if got["- removed removed.go"] != "red" {
+		t.Fatalf("expected removed row to be red, got %#v", got)
+	}
+	if got["+ untracked untracked.go"] != "red" {
+		t.Fatalf("expected untracked row to use git untracked red, got %#v", got)
 	}
 }
