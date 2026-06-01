@@ -1,78 +1,56 @@
 # gitsy
 
-A small Go CLI that shows Git status across child repositories and linked worktrees.
+gitsy is a small Go CLI that scans a directory for Git repositories and linked worktrees, fetches fresh upstream metadata by default, and shows a compact status table so you can see what needs attention.
 
-It scans the current directory for repos, fetches upstream metadata by default, hides clean repos unless requested, and renders a compact terminal table.
-
-## Install
-
-Install from GitHub:
+## install
 
 ```bash
 go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 ```
 
-Or install from a local checkout:
-
-```bash
-git clone git@github.com:flexdinesh/gitsy.git
-cd gitsy
-go install ./cmd/gitsy
-```
-
-`go install` puts the `gitsy` binary in your Go bin directory, usually `~/go/bin`. Make sure that directory is on your `PATH` so `gitsy` is available from anywhere:
-
-```bash
-export PATH="$(go env GOPATH)/bin:$PATH"
-```
-
-Then run `gitsy` from any directory you want to scan:
-
-```bash
-gitsy
-```
-
-For a local build without installing globally:
-
-```bash
-go build -o bin/gitsy ./cmd/gitsy
-./bin/gitsy
-```
-
 ## Usage
 
 ```bash
-gitsy [options]
+# Show changed repositories under the current directory.
+gitsy
+
+# Show all discovered repositories, including clean repos.
+gitsy --all
+
+# Scan repository directories up to a specific nested depth.
+gitsy --max-depth 5
+
+# Start scanning from a specific directory instead of the current directory.
+gitsy --dir ~/workspace
+
+# Print warnings for skipped repos and failed git commands.
+gitsy --verbose
+
+# Skip fetching upstream changes and use local status only.
+gitsy --no-fetch
+
+# Fast-forward repositories that can safely update without conflicts.
+gitsy --sync
+
+# Show help.
+gitsy --help
+
+# Show the installed version.
+gitsy --version
 ```
 
-Options:
-
-```text
---all              Show all discovered repositories, including clean repos
---max-depth <n>    Scan repository directories up to n nested levels; default 3
---dir <path>       Start scanning from <path> instead of the current directory
---verbose          Print warnings for skipped repos and failed git commands
---no-fetch         Skip fetching upstream changes; use local status only
---sync             Fast-forward repos that can safely update without conflicts
---help             Show help
---version          Show version
-```
-
-Examples:
+## Development
 
 ```bash
-gitsy
-gitsy --all
-gitsy --max-depth 5
-gitsy --dir ~/workspace --no-fetch
-gitsy --sync
+# Check out the repo.
+git clone git@github.com:flexdinesh/gitsy.git && cd gitsy
+
+# Run tests.
+go test ./...
+
+# Build the binary.
+go build -o bin/gitsy ./cmd/gitsy
+
+# Install the local build as a binary.
+go install ./cmd/gitsy
 ```
-
-## Behavior
-
-- Repositories are discovered by scanning child directories for `.git` directories or worktree `.git` files.
-- Linked worktrees are included via `git worktree list --porcelain`.
-- Clean repositories are hidden by default; use `--all` to show them.
-- `git fetch --all` runs by default before status is rendered so ahead/behind counts are fresh.
-- `--no-fetch` avoids network calls.
-- `--sync` fetches first, then runs `git merge --ff-only` only when a repo is clean, strictly behind, and has a valid upstream.
