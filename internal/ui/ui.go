@@ -66,18 +66,13 @@ func Title(results []RepoResult, showAll bool, totalDiscovered int) string {
 
 func BuildRows(results []RepoResult, showAll bool) []Row {
 	rows := []Row{}
-	hasVisibleRow := false
 
 	for _, result := range results {
 		repoRows := RowsForRepo(result, showAll)
 		if len(repoRows) == 0 {
 			continue
 		}
-		if hasVisibleRow {
-			rows = append(rows, Row{Kind: "separator"})
-		}
 		rows = append(rows, repoRows...)
-		hasVisibleRow = true
 	}
 
 	return rows

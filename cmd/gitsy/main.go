@@ -1,14 +1,43 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/flexdinesh/gitsy/internal/args"
 	"github.com/flexdinesh/gitsy/internal/discover"
 	"github.com/flexdinesh/gitsy/internal/tui"
 	"github.com/flexdinesh/gitsy/internal/version"
 )
+
+type usageError struct {
+	err error
+}
+
+func (err usageError) Error() string {
+	return fmt.Sprintf("%s\n\n%s", err.err, args.Usage)
+}
+
+type warningCollector struct {
+	mutex    sync.Mutex
+	messages []string
+}
+
+func (collector *warningCollector) Add(message string) {
+	collector.mutex.Lock()
+	defer collector.mutex.Unlock()
+	collector.messages = append(collector.messages, message)
+}
+
+func (collector *warningCollector) Print(output *os.File) {
+	collector.mutex.Lock()
+	defer collector.mutex.Unlock()
+	for _, message := range collector.messages {
+		fmt.Fprintf(output, "gitsy: warning: %s\n", message)
+	}
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -25,8 +54,7 @@ func run(argv []string) error {
 
 	parsed := args.Parse(argv, cwd)
 	if !parsed.OK {
-		fmt.Fprintf(os.Stderr, "gitsy: %s\n\n%s", parsed.Err, args.Usage)
-		os.Exit(1)
+		return usageError{err: parsed.Err}
 	}
 	options := parsed.Options
 
@@ -40,15 +68,16 @@ func run(argv []string) error {
 		return nil
 	}
 
-	warn := func(message string) {
-		fmt.Fprintf(os.Stderr, "gitsy: warning: %s\n", message)
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	repos := discover.Discover(discover.Options{
+	warnings := &warningCollector{}
+
+	repos := discover.DiscoverContext(ctx, discover.Options{
 		Cwd:      options.Dir,
 		MaxDepth: options.MaxDepth,
 		Verbose:  options.Verbose,
-		Warn:     warn,
+		Warn:     warnings.Add,
 	})
 
 	noFetch := options.NoFetch
@@ -58,8 +87,12 @@ func run(argv []string) error {
 
 	var processWarn func(message string)
 	if options.Verbose {
-		processWarn = warn
+		processWarn = warnings.Add
 	}
 
-	return tui.Run(os.Stdout, repos, options.All, noFetch, options.Sync, processWarn)
+	err = tui.Run(ctx, cancel, os.Stdout, repos, options.All, noFetch, options.Sync, processWarn)
+	if options.Verbose {
+		warnings.Print(os.Stderr)
+	}
+	return err
 }

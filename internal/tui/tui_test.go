@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -73,6 +74,65 @@ func TestUpdateQuitsOnQAndCtrlC(t *testing.T) {
 	_, ctrlCCommand := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if ctrlCCommand == nil {
 		t.Fatal("expected ctrl+c to return a quit command")
+	}
+}
+
+func TestUpdateCancelsContextOnQuit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	model := newModel(ctx, cancel, []discover.Repo{testRepo("repo")}, false, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
+		return ui.RepoResult{Repo: repo}
+	})
+
+	_, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+
+	if command == nil {
+		t.Fatal("expected q to return a quit command")
+	}
+	if ctx.Err() == nil {
+		t.Fatal("expected quit to cancel context")
+	}
+}
+
+func TestNewModelLimitsActiveInspections(t *testing.T) {
+	repos := []discover.Repo{}
+	for index := 0; index < maxInspecting+2; index++ {
+		repos = append(repos, testRepo("repo-"+string(rune('a'+index))))
+	}
+
+	model := newTestModel(repos, false)
+
+	if model.active != maxInspecting {
+		t.Fatalf("expected %d active inspections, got %d", maxInspecting, model.active)
+	}
+	if model.next != maxInspecting {
+		t.Fatalf("expected next inspection index %d, got %d", maxInspecting, model.next)
+	}
+}
+
+func TestUpdateStartsNextInspectionWhenOneCompletes(t *testing.T) {
+	repos := []discover.Repo{}
+	for index := 0; index < maxInspecting+1; index++ {
+		repos = append(repos, testRepo("repo-"+string(rune('a'+index))))
+	}
+	model := newTestModel(repos, false)
+
+	updated, command := model.Update(repoDoneMsg{
+		index: 0,
+		result: ui.RepoResult{
+			Repo:   repos[0],
+			Status: status.Parse("## main...origin/main\n"),
+		},
+	})
+	got := updated.(Model)
+
+	if command == nil {
+		t.Fatal("expected next inspection command")
+	}
+	if got.active != maxInspecting {
+		t.Fatalf("expected active inspections to stay at %d, got %d", maxInspecting, got.active)
+	}
+	if got.next != maxInspecting+1 {
+		t.Fatalf("expected next inspection index %d, got %d", maxInspecting+1, got.next)
 	}
 }
 
@@ -154,7 +214,7 @@ func TestTableRowsUseContinuationRowsForRepoStatus(t *testing.T) {
 }
 
 func newTestModel(repos []discover.Repo, showAll bool) Model {
-	return newModel(repos, showAll, true, false, nil, func(repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
+	return newModel(context.Background(), nil, repos, showAll, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
 		return ui.RepoResult{
 			Repo:   repo,
 			Status: status.Parse("## main...origin/main\n"),

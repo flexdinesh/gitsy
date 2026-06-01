@@ -1,6 +1,7 @@
 package inspect
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,10 @@ import (
 )
 
 func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []ui.RepoResult {
+	return ReposContext(context.Background(), repos, noFetch, syncRepos, warn)
+}
+
+func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []ui.RepoResult {
 	results := make([]ui.RepoResult, len(repos))
 	var waitGroup sync.WaitGroup
 
@@ -20,7 +25,7 @@ func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(messag
 		waitGroup.Add(1)
 		go func(index int, repo discover.Repo) {
 			defer waitGroup.Done()
-			results[index] = Repo(repo, noFetch, syncRepos, warn)
+			results[index] = RepoContext(ctx, repo, noFetch, syncRepos, warn)
 		}(index, repo)
 	}
 
@@ -29,9 +34,13 @@ func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(messag
 }
 
 func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) ui.RepoResult {
+	return RepoContext(context.Background(), repo, noFetch, syncRepo, warn)
+}
+
+func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) ui.RepoResult {
 	stale := false
 	if !noFetch {
-		fetchResult := git.FetchAll(repo.Path, 30*time.Second)
+		fetchResult := git.FetchAllContext(ctx, repo.Path, 30*time.Second)
 		if !fetchResult.OK {
 			stale = true
 			if warn != nil {
@@ -40,7 +49,7 @@ func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message str
 		}
 	}
 
-	statusResult := git.ShortStatus(repo.Path)
+	statusResult := git.ShortStatusContext(ctx, repo.Path)
 	if !statusResult.OK {
 		if warn != nil {
 			warn(fmt.Sprintf("Failed to read status for %s: %s", repo.DisplayName, gitError(statusResult)))
@@ -62,7 +71,7 @@ func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message str
 
 	if syncRepo && status.CanFastForward(parsedStatus) {
 		pulled := parsedStatus.Branch.Behind
-		ffResult := git.FastForward(repo.Path)
+		ffResult := git.FastForwardContext(ctx, repo.Path)
 		if !ffResult.OK {
 			if warn != nil {
 				warn(fmt.Sprintf("Sync failed for %s: %s", repo.DisplayName, gitError(ffResult)))
@@ -71,7 +80,7 @@ func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message str
 			return result
 		}
 
-		postStatus := git.ShortStatus(repo.Path)
+		postStatus := git.ShortStatusContext(ctx, repo.Path)
 		if !postStatus.OK {
 			if warn != nil {
 				warn(fmt.Sprintf("Failed to read status after sync for %s: %s", repo.DisplayName, gitError(postStatus)))

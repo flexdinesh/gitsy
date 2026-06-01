@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,6 +135,10 @@ func FindGitCandidates(cwd string, maxDepth int, ignoredDirNames map[string]stru
 }
 
 func Discover(options Options) []Repo {
+	return DiscoverContext(context.Background(), options)
+}
+
+func DiscoverContext(ctx context.Context, options Options) []Repo {
 	cwd, err := filepath.Abs(options.Cwd)
 	if err != nil {
 		cwd = filepath.Clean(options.Cwd)
@@ -143,7 +148,7 @@ func Discover(options Options) []Repo {
 	reposByRealPath := map[string]Repo{}
 
 	for _, candidate := range FindGitCandidates(cwd, options.MaxDepth, nil) {
-		verified, ok := verifyRepo(candidate, cwd, SourceScan, warn)
+		verified, ok := verifyRepo(ctx, candidate, cwd, SourceScan, warn)
 		if ok {
 			reposByRealPath[verified.RealPath] = verified
 		}
@@ -155,14 +160,14 @@ func Discover(options Options) []Repo {
 	}
 
 	for _, repo := range scannedRepos {
-		result := git.WorktreeList(repo.Path)
+		result := git.WorktreeListContext(ctx, repo.Path)
 		if !result.OK {
 			warn(fmt.Sprintf("Failed to list worktrees for %s: %s", repo.DisplayName, gitError(result)))
 			continue
 		}
 
 		for _, worktreePath := range git.ParseWorktreePaths(result.Stdout) {
-			verified, ok := verifyRepo(worktreePath, cwd, SourceWorktree, warn)
+			verified, ok := verifyRepo(ctx, worktreePath, cwd, SourceWorktree, warn)
 			if ok {
 				if _, exists := reposByRealPath[verified.RealPath]; !exists {
 					reposByRealPath[verified.RealPath] = verified
@@ -203,7 +208,7 @@ func DisplayNameForPath(cwd string, repoPath string) string {
 	return absoluteRepo
 }
 
-func verifyRepo(repoPath string, cwd string, source RepoSource, warn func(message string)) (Repo, bool) {
+func verifyRepo(ctx context.Context, repoPath string, cwd string, source RepoSource, warn func(message string)) (Repo, bool) {
 	stats, err := os.Stat(repoPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -224,7 +229,7 @@ func verifyRepo(repoPath string, cwd string, source RepoSource, warn func(messag
 		return Repo{}, false
 	}
 
-	topLevel := git.TopLevel(repoPath)
+	topLevel := git.TopLevelContext(ctx, repoPath)
 	if !topLevel.OK {
 		warn(fmt.Sprintf("Skipping invalid git repo %s: %s", DisplayNameForPath(cwd, repoPath), gitError(topLevel)))
 		return Repo{}, false

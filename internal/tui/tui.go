@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -15,14 +16,17 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-type inspector func(discover.Repo, bool, bool, func(string)) ui.RepoResult
+type inspector func(context.Context, discover.Repo, bool, bool, func(string)) ui.RepoResult
 
 const (
 	minWidth       = 32
 	minTableHeight = 4
+	maxInspecting  = 8
 )
 
 type Model struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
 	results []ui.RepoResult
 	showAll bool
 	noFetch bool
@@ -33,6 +37,8 @@ type Model struct {
 	width   int
 	height  int
 	done    int
+	next    int
+	active  int
 	inspect inspector
 }
 
@@ -41,9 +47,9 @@ type repoDoneMsg struct {
 	result ui.RepoResult
 }
 
-func Run(output *os.File, repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string)) error {
+func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string)) error {
 	program := tea.NewProgram(
-		NewModel(repos, showAll, noFetch, syncRepos, warn),
+		newModel(ctx, cancel, repos, showAll, noFetch, syncRepos, warn, inspect.RepoContext),
 		tea.WithAltScreen(),
 		tea.WithOutput(output),
 	)
@@ -52,10 +58,13 @@ func Run(output *os.File, repos []discover.Repo, showAll bool, noFetch bool, syn
 }
 
 func NewModel(repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string)) Model {
-	return newModel(repos, showAll, noFetch, syncRepos, warn, inspect.Repo)
+	return newModel(context.Background(), nil, repos, showAll, noFetch, syncRepos, warn, inspect.RepoContext)
 }
 
-func newModel(repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string), inspect inspector) Model {
+func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string), inspect inspector) Model {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	results := make([]ui.RepoResult, len(repos))
 	for index, repo := range repos {
 		results[index] = ui.RepoResult{
@@ -66,8 +75,11 @@ func newModel(repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool,
 
 	spin := spinner.New()
 	spin.Spinner = spinner.Dot
+	active := min(maxInspecting, len(repos))
 
 	return Model{
+		ctx:     ctx,
+		cancel:  cancel,
 		results: results,
 		showAll: showAll,
 		noFetch: noFetch,
@@ -78,13 +90,16 @@ func newModel(repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool,
 			table.WithFocused(true),
 			table.WithStyles(tableStyles()),
 		),
+		next:    active,
+		active:  active,
 		inspect: inspect,
 	}
 }
 
 func (model Model) Init() tea.Cmd {
-	commands := make([]tea.Cmd, 0, len(model.results)+1)
-	for index, result := range model.results {
+	commands := make([]tea.Cmd, 0, model.active+1)
+	for index := 0; index < model.next; index++ {
+		result := model.results[index]
 		commands = append(commands, model.inspectRepo(index, result.Repo))
 	}
 	if len(model.results) > 0 {
@@ -97,6 +112,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.KeyMsg:
 		if isQuitKey(msg) {
+			if model.cancel != nil {
+				model.cancel()
+			}
 			return model, tea.Quit
 		}
 	case tea.WindowSizeMsg:
@@ -108,9 +126,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.index >= 0 && msg.index < len(model.results) && model.results[msg.index].Loading {
 			model.results[msg.index] = msg.result
 			model.done++
+			model.active--
 		}
 		model.updateTable()
-		return model, nil
+		return model, model.nextInspectCommands()
 	case spinner.TickMsg:
 		if model.done >= len(model.results) {
 			return model, nil
@@ -149,9 +168,20 @@ func (model Model) inspectRepo(index int, repo discover.Repo) tea.Cmd {
 	return func() tea.Msg {
 		return repoDoneMsg{
 			index:  index,
-			result: model.inspect(repo, model.noFetch, model.sync, model.warn),
+			result: model.inspect(model.ctx, repo, model.noFetch, model.sync, model.warn),
 		}
 	}
+}
+
+func (model *Model) nextInspectCommands() tea.Cmd {
+	commands := []tea.Cmd{}
+	for model.active < maxInspecting && model.next < len(model.results) {
+		index := model.next
+		model.next++
+		model.active++
+		commands = append(commands, model.inspectRepo(index, model.results[index].Repo))
+	}
+	return tea.Batch(commands...)
 }
 
 func isQuitKey(message tea.KeyMsg) bool {
@@ -218,24 +248,19 @@ func (model Model) resultsWithSpinner() []ui.RepoResult {
 }
 
 func (model Model) tableRows() []table.Row {
-	results := model.resultsWithSpinner()
-	tableRows := make([]table.Row, 0, len(results))
-	for _, result := range results {
-		rows := ui.RowsForRepo(result, model.showAll)
-		if len(rows) == 0 {
-			continue
+	rows := ui.BuildRows(model.resultsWithSpinner(), model.showAll)
+	tableRows := make([]table.Row, 0, len(rows))
+	previousRepo := ""
+	for _, row := range rows {
+		repo := ""
+		if row.Repo != "" && row.Repo != previousRepo {
+			repo = row.Repo
+			previousRepo = row.Repo
 		}
-
-		for index, row := range rows {
-			repo := ""
-			if index == 0 {
-				repo = row.Repo
-			}
-			tableRows = append(tableRows, table.Row{
-				repo,
-				model.renderStatusCell(row),
-			})
-		}
+		tableRows = append(tableRows, table.Row{
+			repo,
+			model.renderStatusCell(row),
+		})
 	}
 
 	if len(tableRows) == 0 {

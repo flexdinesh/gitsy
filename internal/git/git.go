@@ -16,8 +16,19 @@ type Result struct {
 }
 
 func Run(cwd string, args ...string) Result {
+	return RunContext(context.Background(), cwd, args...)
+}
+
+func RunContext(ctx context.Context, cwd string, args ...string) Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	fullArgs := append([]string{"-C", cwd}, args...)
-	cmd := exec.Command("git", fullArgs...)
+	cmd := exec.CommandContext(ctx, "git", fullArgs...)
+	return runCommand(ctx, cmd)
+}
+
+func runCommand(ctx context.Context, cmd *exec.Cmd) Result {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -27,7 +38,9 @@ func Run(cwd string, args ...string) Result {
 	status := 0
 	if err != nil {
 		status = -1
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		if ctx.Err() != nil {
+			stderr.WriteString(ctx.Err().Error())
+		} else if exitErr, ok := err.(*exec.ExitError); ok {
 			status = exitErr.ExitCode()
 		} else if stderr.Len() == 0 {
 			stderr.WriteString(err.Error())
@@ -43,54 +56,58 @@ func Run(cwd string, args ...string) Result {
 }
 
 func TopLevel(repoPath string) Result {
-	return Run(repoPath, "rev-parse", "--show-toplevel")
+	return TopLevelContext(context.Background(), repoPath)
+}
+
+func TopLevelContext(ctx context.Context, repoPath string) Result {
+	return RunContext(ctx, repoPath, "rev-parse", "--show-toplevel")
 }
 
 func ShortStatus(repoPath string) Result {
-	return Run(repoPath, "status", "--short", "--branch", "--ahead-behind")
+	return ShortStatusContext(context.Background(), repoPath)
+}
+
+func ShortStatusContext(ctx context.Context, repoPath string) Result {
+	return RunContext(ctx, repoPath, "status", "--short", "--branch", "--ahead-behind")
 }
 
 func WorktreeList(repoPath string) Result {
-	return Run(repoPath, "worktree", "list", "--porcelain")
+	return WorktreeListContext(context.Background(), repoPath)
+}
+
+func WorktreeListContext(ctx context.Context, repoPath string) Result {
+	return RunContext(ctx, repoPath, "worktree", "list", "--porcelain")
 }
 
 func FastForward(repoPath string) Result {
-	return Run(repoPath, "merge", "--ff-only")
+	return FastForwardContext(context.Background(), repoPath)
+}
+
+func FastForwardContext(ctx context.Context, repoPath string) Result {
+	return RunContext(ctx, repoPath, "merge", "--ff-only")
 }
 
 func FetchAll(repoPath string, timeout time.Duration) Result {
+	return FetchAllContext(context.Background(), repoPath, timeout)
+}
+
+func FetchAllContext(ctx context.Context, repoPath string, timeout time.Duration) Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "fetch", "--all")
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	status := 0
-	if err != nil {
-		status = -1
-		if ctx.Err() == context.DeadlineExceeded {
-			stderr.WriteString("git fetch timed out")
-		} else if exitErr, ok := err.(*exec.ExitError); ok {
-			status = exitErr.ExitCode()
-		} else if stderr.Len() == 0 {
-			stderr.WriteString(err.Error())
-		}
+	result := runCommand(ctx, cmd)
+	if ctx.Err() == context.DeadlineExceeded {
+		result.Stderr = "git fetch timed out"
 	}
-
-	return Result{
-		OK:     err == nil,
-		Stdout: stdout.String(),
-		Stderr: stderr.String(),
-		Status: status,
-	}
+	return result
 }
 
 func ParseWorktreePaths(porcelain string) []string {
