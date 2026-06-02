@@ -13,7 +13,7 @@ import (
 )
 
 func TestNewModelInitializesReposAsLoading(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 
 	if len(model.results) != 1 {
 		t.Fatalf("expected one repo result, got %d", len(model.results))
@@ -24,7 +24,7 @@ func TestNewModelInitializesReposAsLoading(t *testing.T) {
 }
 
 func TestUpdateReplacesLoadingRepoWhenInspectionCompletes(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 
 	updated, _ := model.Update(repoDoneMsg{
 		index: 0,
@@ -43,8 +43,8 @@ func TestUpdateReplacesLoadingRepoWhenInspectionCompletes(t *testing.T) {
 	}
 }
 
-func TestViewFiltersCompletedCleanReposWhenAllIsFalse(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+func TestViewShowsCompletedCleanRepos(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 	updated, _ := model.Update(repoDoneMsg{
 		index: 0,
 		result: ui.RepoResult{
@@ -53,13 +53,13 @@ func TestViewFiltersCompletedCleanReposWhenAllIsFalse(t *testing.T) {
 		},
 	})
 
-	if rows := ui.BuildRows(updated.(Model).results, false); len(rows) != 0 {
-		t.Fatalf("expected clean completed repo to be filtered from rows, got %#v", rows)
+	if rows := ui.BuildRows(updated.(Model).results); len(rows) == 0 {
+		t.Fatal("expected clean completed repo to remain visible")
 	}
 }
 
 func TestUpdateQuitsOnQAndCtrlC(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 
 	_, qCommand := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if qCommand == nil {
@@ -79,7 +79,7 @@ func TestUpdateQuitsOnQAndCtrlC(t *testing.T) {
 
 func TestUpdateCancelsContextOnQuit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	model := newModel(ctx, cancel, []discover.Repo{testRepo("repo")}, false, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
+	model := newModel(ctx, cancel, []discover.Repo{testRepo("repo")}, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
 		return ui.RepoResult{Repo: repo}
 	})
 
@@ -99,7 +99,7 @@ func TestNewModelLimitsActiveInspections(t *testing.T) {
 		repos = append(repos, testRepo("repo-"+string(rune('a'+index))))
 	}
 
-	model := newTestModel(repos, false)
+	model := newTestModel(repos)
 
 	if model.active != maxInspecting {
 		t.Fatalf("expected %d active inspections, got %d", maxInspecting, model.active)
@@ -114,7 +114,7 @@ func TestUpdateStartsNextInspectionWhenOneCompletes(t *testing.T) {
 	for index := 0; index < maxInspecting+1; index++ {
 		repos = append(repos, testRepo("repo-"+string(rune('a'+index))))
 	}
-	model := newTestModel(repos, false)
+	model := newTestModel(repos)
 
 	updated, command := model.Update(repoDoneMsg{
 		index: 0,
@@ -137,7 +137,7 @@ func TestUpdateStartsNextInspectionWhenOneCompletes(t *testing.T) {
 }
 
 func TestWindowSizeBoundsRepoViewport(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")}, false)
+	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")})
 
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	got := updated.(Model)
@@ -151,7 +151,7 @@ func TestWindowSizeBoundsRepoViewport(t *testing.T) {
 }
 
 func TestViewRendersContainerBorders(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 
 	view := updated.(Model).View()
@@ -168,7 +168,7 @@ func TestViewRendersContainerBorders(t *testing.T) {
 }
 
 func TestTableRowsShowSpinnerInLoadingStatusCell(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 	model.spin.Spinner.Frames = []string{"."}
 
 	rows := model.tableRows()
@@ -182,7 +182,7 @@ func TestTableRowsShowSpinnerInLoadingStatusCell(t *testing.T) {
 }
 
 func TestTableRowsUseContinuationRowsForRepoStatus(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, true)
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 	model.results[0] = ui.RepoResult{
 		Repo: testRepo("repo"),
 		Status: status.Parse(strings.Join([]string{
@@ -213,8 +213,25 @@ func TestTableRowsUseContinuationRowsForRepoStatus(t *testing.T) {
 	}
 }
 
+func TestTableRowsShowCleanRepoOnce(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo")})
+	model.results[0] = ui.RepoResult{
+		Repo:   testRepo("repo"),
+		Status: status.Parse("## main...origin/main\n"),
+	}
+
+	rows := model.tableRows()
+
+	if len(rows) != 1 {
+		t.Fatalf("expected one clean repo table row, got %d rows: %#v", len(rows), rows)
+	}
+	if rows[0][0] != "repo" || !strings.Contains(rows[0][1], "main ✓ clean") {
+		t.Fatalf("expected single branch summary clean row, got %#v", rows)
+	}
+}
+
 func TestTableRowsAddSpacingBetweenRepos(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")}, true)
+	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")})
 
 	rows := model.tableRows()
 
@@ -230,7 +247,7 @@ func TestTableRowsAddSpacingBetweenRepos(t *testing.T) {
 }
 
 func TestTableColumnsHaveSpacingAndFitWidth(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")}, false)
+	model := newTestModel([]discover.Repo{testRepo("repo")})
 	model.updateTableWithSize(40, 10)
 
 	columns := model.repos.Columns()
@@ -247,8 +264,8 @@ func TestTableColumnsHaveSpacingAndFitWidth(t *testing.T) {
 	}
 }
 
-func newTestModel(repos []discover.Repo, showAll bool) Model {
-	return newModel(context.Background(), nil, repos, showAll, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
+func newTestModel(repos []discover.Repo) Model {
+	return newModel(context.Background(), nil, repos, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
 		return ui.RepoResult{
 			Repo:   repo,
 			Status: status.Parse("## main...origin/main\n"),

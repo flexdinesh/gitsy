@@ -13,7 +13,6 @@ const Usage = `Usage: gitsy [options]
 Show git status across child repositories and linked worktrees.
 
 Options:
-  --all              Show all discovered repositories, including clean repos
   --max-depth <n>    Scan repository directories up to n nested levels (default: 3)
   --dir <path>       Start scanning from <path> instead of the current directory
   --verbose          Print warnings for skipped repos and failed git commands
@@ -24,7 +23,6 @@ Options:
 `
 
 type Options struct {
-	All      bool
 	MaxDepth int
 	Verbose  bool
 	NoFetch  bool
@@ -52,8 +50,6 @@ func Parse(argv []string, cwd string) ParseResult {
 		switch {
 		case arg == "--":
 			continue
-		case arg == "--all":
-			options.All = true
 		case arg == "--verbose":
 			options.Verbose = true
 		case arg == "--no-fetch":

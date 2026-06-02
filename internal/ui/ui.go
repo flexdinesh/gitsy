@@ -50,25 +50,22 @@ var categoryStyles = map[status.Category]categoryStyle{
 	status.Other:     {icon: "•", label: "changed", tone: "white"},
 }
 
-func EmptyMessage(totalDiscovered int, showAll bool) string {
+func EmptyMessage(totalDiscovered int) string {
 	if totalDiscovered == 0 {
 		return "No child git repositories found."
-	}
-	if !showAll {
-		return "No child git repositories with changes or branch divergence found."
 	}
 	return ""
 }
 
-func Title(results []RepoResult, showAll bool, totalDiscovered int) string {
-	return fmt.Sprintf("gitsy • %d/%d %s", countVisible(results, showAll), totalDiscovered, filterLabel(showAll))
+func Title(results []RepoResult, totalDiscovered int) string {
+	return fmt.Sprintf("gitsy • %d/%d all repos", countVisible(results), totalDiscovered)
 }
 
-func BuildRows(results []RepoResult, showAll bool) []Row {
+func BuildRows(results []RepoResult) []Row {
 	rows := []Row{}
 
 	for _, result := range results {
-		repoRows := RowsForRepo(result, showAll)
+		repoRows := RowsForRepo(result)
 		if len(repoRows) == 0 {
 			continue
 		}
@@ -78,7 +75,7 @@ func BuildRows(results []RepoResult, showAll bool) []Row {
 	return rows
 }
 
-func RowsForRepo(result RepoResult, showAll bool) []Row {
+func RowsForRepo(result RepoResult) []Row {
 	if result.Loading {
 		text := "⏳ fetching status…"
 		if result.LoadingText != "" {
@@ -91,10 +88,6 @@ func RowsForRepo(result RepoResult, showAll bool) []Row {
 			Tone: "cyan",
 			Bold: true,
 		}}
-	}
-
-	if !result.Status.Changed && !showAll && (result.Sync == nil || result.Sync.Kind != "synced") {
-		return nil
 	}
 
 	rows := []Row{}
@@ -133,9 +126,6 @@ func RowsForRepo(result RepoResult, showAll bool) []Row {
 	})
 
 	if len(result.Status.Items) == 0 {
-		if !result.Status.Changed {
-			rows = append(rows, Row{Kind: "data", Text: "✓ clean", Tone: "green", Dim: true})
-		}
 		return rows
 	}
 
@@ -225,19 +215,6 @@ func formatItemPath(item status.Item) string {
 	return item.Raw
 }
 
-func countVisible(results []RepoResult, showAll bool) int {
-	count := 0
-	for _, result := range results {
-		if result.Loading || result.Status.Changed || showAll || (result.Sync != nil && result.Sync.Kind == "synced") {
-			count++
-		}
-	}
-	return count
-}
-
-func filterLabel(showAll bool) string {
-	if showAll {
-		return "all repos"
-	}
-	return "changed repos"
+func countVisible(results []RepoResult) int {
+	return len(results)
 }

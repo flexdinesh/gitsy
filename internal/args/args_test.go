@@ -7,9 +7,6 @@ func TestParseReturnsDefaults(t *testing.T) {
 	if !result.OK {
 		t.Fatalf("Parse returned error: %v", result.Err)
 	}
-	if result.Options.All {
-		t.Fatal("expected All to default false")
-	}
 	if result.Options.MaxDepth != 3 {
 		t.Fatalf("expected MaxDepth 3, got %d", result.Options.MaxDepth)
 	}
@@ -22,11 +19,11 @@ func TestParseReturnsDefaults(t *testing.T) {
 }
 
 func TestParseSupportsFlags(t *testing.T) {
-	result := Parse([]string{"--all", "--verbose", "--no-fetch", "--sync", "--help", "--version"}, "/cwd")
+	result := Parse([]string{"--verbose", "--no-fetch", "--sync", "--help", "--version"}, "/cwd")
 	if !result.OK {
 		t.Fatalf("Parse returned error: %v", result.Err)
 	}
-	if !result.Options.All || !result.Options.Verbose || !result.Options.NoFetch || !result.Options.Sync || !result.Options.Help || !result.Options.Version {
+	if !result.Options.Verbose || !result.Options.NoFetch || !result.Options.Sync || !result.Options.Help || !result.Options.Version {
 		t.Fatalf("expected all flags true: %+v", result.Options)
 	}
 }
@@ -83,7 +80,7 @@ func TestParseSupportsDir(t *testing.T) {
 }
 
 func TestParseRejectsMissingDir(t *testing.T) {
-	for _, argv := range [][]string{{"--dir"}, {"--dir", "--all"}, {"--dir="}} {
+	for _, argv := range [][]string{{"--dir"}, {"--dir", "--verbose"}, {"--dir="}} {
 		if Parse(argv, "/cwd").OK {
 			t.Fatalf("expected Parse(%v) to fail", argv)
 		}
@@ -91,7 +88,9 @@ func TestParseRejectsMissingDir(t *testing.T) {
 }
 
 func TestParseRejectsUnknownArgs(t *testing.T) {
-	if Parse([]string{"--raw"}, "/cwd").OK {
-		t.Fatal("expected unknown arg to fail")
+	for _, argv := range [][]string{{"--raw"}, {"--all"}} {
+		if Parse(argv, "/cwd").OK {
+			t.Fatalf("expected Parse(%v) to fail", argv)
+		}
 	}
 }

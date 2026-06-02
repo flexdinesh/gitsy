@@ -11,11 +11,8 @@ go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 ## Usage
 
 ```bash
-# Show changed repositories under the current directory.
+# Show all discovered repositories under the current directory.
 gitsy
-
-# Show all discovered repositories, including clean repos.
-gitsy --all
 
 # Scan repository directories up to a specific nested depth.
 gitsy --max-depth 5

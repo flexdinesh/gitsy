@@ -32,7 +32,6 @@ go install ./cmd/gitsy
 go run ./cmd/gitsy
 
 # Try useful modes while developing.
-go run ./cmd/gitsy --all
 go run ./cmd/gitsy --no-fetch
 go run ./cmd/gitsy --verbose
 go run ./cmd/gitsy --sync

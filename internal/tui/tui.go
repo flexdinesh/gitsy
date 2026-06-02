@@ -29,7 +29,6 @@ type Model struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	results []ui.RepoResult
-	showAll bool
 	noFetch bool
 	sync    bool
 	warn    func(string)
@@ -48,9 +47,9 @@ type repoDoneMsg struct {
 	result ui.RepoResult
 }
 
-func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string)) error {
+func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string)) error {
 	program := tea.NewProgram(
-		newModel(ctx, cancel, repos, showAll, noFetch, syncRepos, warn, inspect.RepoContext),
+		newModel(ctx, cancel, repos, noFetch, syncRepos, warn, inspect.RepoContext),
 		tea.WithAltScreen(),
 		tea.WithOutput(output),
 	)
@@ -58,11 +57,11 @@ func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, repos 
 	return err
 }
 
-func NewModel(repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string)) Model {
-	return newModel(context.Background(), nil, repos, showAll, noFetch, syncRepos, warn, inspect.RepoContext)
+func NewModel(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string)) Model {
+	return newModel(context.Background(), nil, repos, noFetch, syncRepos, warn, inspect.RepoContext)
 }
 
-func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.Repo, showAll bool, noFetch bool, syncRepos bool, warn func(string), inspect inspector) Model {
+func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string), inspect inspector) Model {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -82,7 +81,6 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 		ctx:     ctx,
 		cancel:  cancel,
 		results: results,
-		showAll: showAll,
 		noFetch: noFetch,
 		sync:    syncRepos,
 		warn:    warn,
@@ -216,7 +214,7 @@ func (model Model) renderTitle(width int) string {
 		mode = "sync"
 	}
 
-	title := ui.Title(model.results, model.showAll, len(model.results)) + fmtStatus(mode, pending)
+	title := ui.Title(model.results, len(model.results)) + fmtStatus(mode, pending)
 	return frameStyle(width, 1).Render(titleStyle(width).Render(title))
 }
 
@@ -249,7 +247,7 @@ func (model Model) resultsWithSpinner() []ui.RepoResult {
 }
 
 func (model Model) tableRows() []table.Row {
-	rows := ui.BuildRows(model.resultsWithSpinner(), model.showAll)
+	rows := ui.BuildRows(model.resultsWithSpinner())
 	tableRows := make([]table.Row, 0, len(rows))
 	previousRepo := ""
 	for _, row := range rows {
@@ -268,7 +266,7 @@ func (model Model) tableRows() []table.Row {
 	}
 
 	if len(tableRows) == 0 {
-		message := ui.EmptyMessage(len(model.results), model.showAll)
+		message := ui.EmptyMessage(len(model.results))
 		if message == "" {
 			message = "No repositories to display."
 		}

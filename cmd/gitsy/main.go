@@ -90,7 +90,7 @@ func run(argv []string) error {
 		processWarn = warnings.Add
 	}
 
-	err = tui.Run(ctx, cancel, os.Stdout, repos, options.All, noFetch, options.Sync, processWarn)
+	err = tui.Run(ctx, cancel, os.Stdout, repos, noFetch, options.Sync, processWarn)
 	if options.Verbose {
 		warnings.Print(os.Stderr)
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/flexdinesh/gitsy/internal/status"
 )
 
-func TestBuildRowsShowsSyncedCleanRepoWhenAllIsFalse(t *testing.T) {
+func TestBuildRowsShowsSyncedCleanRepo(t *testing.T) {
 	repo := discover.Repo{
 		Path:        "/tmp/repo",
 		RealPath:    "/tmp/repo",
@@ -20,7 +20,7 @@ func TestBuildRowsShowsSyncedCleanRepoWhenAllIsFalse(t *testing.T) {
 		Repo:   repo,
 		Status: status.Parse("## main...origin/main\n"),
 		Sync:   &SyncOutcome{Kind: "synced", Pulled: 1},
-	}}, false)
+	}})
 
 	if len(rows) == 0 {
 		t.Fatal("expected synced repo to remain visible")
@@ -30,7 +30,27 @@ func TestBuildRowsShowsSyncedCleanRepoWhenAllIsFalse(t *testing.T) {
 	}
 }
 
-func TestBuildRowsShowsLoadingRepoWhenAllIsFalse(t *testing.T) {
+func TestBuildRowsShowsCleanRepoOnce(t *testing.T) {
+	repo := discover.Repo{
+		Path:        "/tmp/repo",
+		RealPath:    "/tmp/repo",
+		DisplayName: "repo",
+		Source:      discover.SourceScan,
+	}
+	rows := BuildRows([]RepoResult{{
+		Repo:   repo,
+		Status: status.Parse("## main...origin/main\n"),
+	}})
+
+	if len(rows) != 1 {
+		t.Fatalf("expected one clean repo row, got %d rows: %#v", len(rows), rows)
+	}
+	if rows[0].Repo != "repo" || rows[0].Text != "main ✓ clean" {
+		t.Fatalf("expected branch summary clean row, got %#v", rows[0])
+	}
+}
+
+func TestBuildRowsShowsLoadingRepo(t *testing.T) {
 	repo := discover.Repo{
 		Path:        "/tmp/repo",
 		RealPath:    "/tmp/repo",
@@ -40,7 +60,7 @@ func TestBuildRowsShowsLoadingRepoWhenAllIsFalse(t *testing.T) {
 	rows := BuildRows([]RepoResult{{
 		Repo:    repo,
 		Loading: true,
-	}}, false)
+	}})
 
 	if len(rows) != 1 {
 		t.Fatalf("expected one loading row, got %d", len(rows))
@@ -74,7 +94,7 @@ func TestBuildRowsUsesGitStatusLabelsAndTones(t *testing.T) {
 			" D removed.go",
 			"?? untracked.go",
 		}, "\n")),
-	}}, false)
+	}})
 
 	got := map[string]string{}
 	for _, row := range rows {
