@@ -4,8 +4,9 @@ Releases are SemVer Git tags on `main`.
 
 ## Current Policy
 
-Every push to `main` creates the next `v0.0.x` release. If there are no release
-tags yet, the next `main` push creates `v0.0.1`.
+Stable releases are created manually from the latest code on `main` by running
+the GitHub Actions release workflow. Each dispatch creates the next `v0.0.x`
+release.
 
 Examples:
 
@@ -17,6 +18,8 @@ v0.0.3
 
 The GitHub Actions release workflow creates the tag, runs GoReleaser, and
 publishes macOS and Linux archives plus checksums.
+
+Pushes to `dev` still run automatic GoReleaser snapshot releases through CI.
 
 ## Installing
 

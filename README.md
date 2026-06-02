@@ -45,20 +45,8 @@ gitsy --version
 
 ## Development
 
-```bash
-# Check out the repo.
-git clone git@github.com:flexdinesh/gitsy.git && cd gitsy
-
-# Run tests.
-go test ./...
-
-# Build the binary.
-go build -o bin/gitsy ./cmd/gitsy
-
-# Install the local build as a binary.
-go install ./cmd/gitsy
-```
+See [docs/development.md](docs/development.md).
 
 ## Releases
 
-Releases are created from `main`. See `docs/release.md`.
+Releases are created from `main`. See [docs/release.md](docs/release.md).
