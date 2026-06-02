@@ -6,7 +6,7 @@ Releases are SemVer Git tags on `main`.
 
 Stable releases are created manually from the latest code on `main` by running
 the GitHub Actions release workflow. Each dispatch creates the next `v0.0.x`
-release.
+release. If there are no release tags yet, the first dispatch creates `v0.0.1`.
 
 Examples:
 
