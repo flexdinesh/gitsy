@@ -21,20 +21,20 @@ go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.0.1
 # Show all discovered repositories under the current directory.
 gitsy
 
+# Fast-forward repositories that can safely update without conflicts.
+gitsy --sync
+
 # Scan repository directories up to a specific nested depth.
 gitsy --max-depth 5
 
 # Start scanning from a specific directory instead of the current directory.
 gitsy --dir ~/workspace
 
-# Print warnings for skipped repos and failed git commands.
-gitsy --verbose
-
 # Skip fetching upstream changes and use local status only.
 gitsy --no-fetch
 
-# Fast-forward repositories that can safely update without conflicts.
-gitsy --sync
+# Print warnings for skipped repos and failed git commands.
+gitsy --verbose
 
 # Show help.
 gitsy --help
