@@ -4,8 +4,15 @@ gitsy is a small Go CLI that scans a directory for Git repositories and linked w
 
 ## install
 
+`@latest` resolves to the newest stable SemVer tag, such as `v0.0.1` or
+`v0.0.2`. There is no moving `latest` Git tag.
+
 ```bash
+# Install the latest stable release.
 go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
+
+# Install a specific stable release.
+go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.0.1
 ```
 
 ## Usage
@@ -51,3 +58,7 @@ go build -o bin/gitsy ./cmd/gitsy
 # Install the local build as a binary.
 go install ./cmd/gitsy
 ```
+
+## Releases
+
+Releases are created from `main`. See `docs/release.md`.

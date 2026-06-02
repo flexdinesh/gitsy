@@ -1,0 +1,2 @@
+prefix_rule(pattern=["go", "run"], decision="allow")
+prefix_rule(pattern=["goreleaser", "release"], decision="allow")

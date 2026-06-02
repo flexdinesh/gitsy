@@ -64,7 +64,7 @@ func run(argv []string) error {
 	}
 
 	if options.Version {
-		fmt.Fprintf(os.Stdout, "gitsy %s\n", version.Version)
+		fmt.Fprintf(os.Stdout, "gitsy %s\n", version.String())
 		return nil
 	}
 

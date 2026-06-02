@@ -1,0 +1,61 @@
+version: 2
+
+project_name: gitsy
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: gitsy
+    main: ./cmd/gitsy
+    binary: gitsy
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/flexdinesh/gitsy/internal/version.Version={{.Version}} -X github.com/flexdinesh/gitsy/internal/version.Commit={{.Commit}} -X github.com/flexdinesh/gitsy/internal/version.Date={{.CommitDate}}
+
+archives:
+  - id: tarballs
+    ids:
+      - gitsy
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 2
+    - title: Maintenance
+      regexp: '^.*?(chore|refactor|test|ci)(\(.+\))??!?:.+$'
+      order: 3
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^Merge pull request'
+      - '^Merge branch'
