@@ -2,7 +2,7 @@
 
 gitsy is a small Go CLI that scans a directory for Git repositories and linked worktrees, fetches fresh upstream metadata by default, and shows a compact status table so you can see what needs attention.
 
-## install
+## Install
 
 Make sure you have [go](https://go.dev) installed in your machine. If you're on MacOS, [brew](https://formulae.brew.sh/formula/go) is the easiest way.
 
