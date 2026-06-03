@@ -5,15 +5,16 @@ Releases are SemVer Git tags on `main`.
 ## Current Policy
 
 Stable releases are created manually from the latest code on `main` by running
-the GitHub Actions release workflow. Each dispatch creates the next `v0.0.x`
-release. If there are no release tags yet, the first dispatch creates `v0.0.1`.
+the GitHub Actions release workflow. Each dispatch creates the next `v0.1.x`
+release. If there are no `v0.1.x` release tags yet, the first dispatch creates
+`v0.1.0`.
 
 Examples:
 
 ```bash
-v0.0.1
-v0.0.2
-v0.0.3
+v0.1.0
+v0.1.1
+v0.1.2
 ```
 
 The GitHub Actions release workflow creates the tag, runs GoReleaser, and
@@ -28,7 +29,7 @@ Pushes to `dev` still run automatic GoReleaser snapshot releases through CI.
 go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 
 # Specific release.
-go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.0.1
+go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.1.0
 
 # Development release.
 go install github.com/flexdinesh/gitsy/cmd/gitsy@dev

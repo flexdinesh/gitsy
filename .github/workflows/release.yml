@@ -38,19 +38,19 @@ jobs:
 
           git fetch --tags --force
 
-          current="$(git tag --points-at HEAD -l 'v0.0.*' --sort=-v:refname | head -n 1)"
+          current="$(git tag --points-at HEAD -l 'v0.1.*' --sort=-v:refname | head -n 1)"
           if [[ -n "$current" ]]; then
             echo "tag=$current" >> "$GITHUB_OUTPUT"
             echo "create=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          latest="$(git tag -l 'v0.0.*' --sort=-v:refname | head -n 1)"
+          latest="$(git tag -l 'v0.1.*' --sort=-v:refname | head -n 1)"
           if [[ -z "$latest" ]]; then
-            next="v0.0.1"
+            next="v0.1.0"
           else
             patch="${latest##*.}"
-            next="v0.0.$((patch + 1))"
+            next="v0.1.$((patch + 1))"
           fi
 
           echo "tag=$next" >> "$GITHUB_OUTPUT"
