@@ -70,6 +70,29 @@ func TestBuildRowsShowsLoadingRepo(t *testing.T) {
 	}
 }
 
+func TestTitleSummarizesRepoStates(t *testing.T) {
+	results := []RepoResult{
+		{
+			Status: status.Parse("## main...origin/main\n M changed.go\n"),
+		},
+		{
+			Status: status.Parse("## main...origin/main [behind 2]\n"),
+		},
+		{
+			Failed: true,
+		},
+		{
+			Sync: &SyncOutcome{Kind: "failed"},
+		},
+	}
+
+	got := Title(results, len(results))
+	want := "gitsy • 4 repos • 1 changed • 1 behind • 2 failed"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestFormatBranchSummary(t *testing.T) {
 	parsed := status.Parse("## main...origin/main [ahead 1, behind 2]\n")
 	got := FormatBranchSummary(parsed)

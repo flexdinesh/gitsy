@@ -58,7 +58,38 @@ func EmptyMessage(totalDiscovered int) string {
 }
 
 func Title(results []RepoResult, totalDiscovered int) string {
-	return fmt.Sprintf("gitsy • %d/%d all repos", countVisible(results), totalDiscovered)
+	visible := countVisible(results)
+	repoCount := fmt.Sprintf("%d/%d repos", visible, totalDiscovered)
+	if visible == totalDiscovered {
+		repoCount = fmt.Sprintf("%d repos", totalDiscovered)
+	}
+
+	changed := 0
+	behind := 0
+	failed := 0
+	for _, result := range results {
+		if len(result.Status.Items) > 0 {
+			changed++
+		}
+		if result.Status.Branch != nil && result.Status.Branch.Behind > 0 {
+			behind++
+		}
+		if result.Failed || result.Sync != nil && result.Sync.Kind == "failed" {
+			failed++
+		}
+	}
+
+	parts := []string{"gitsy", repoCount}
+	if changed > 0 {
+		parts = append(parts, fmt.Sprintf("%d changed", changed))
+	}
+	if behind > 0 {
+		parts = append(parts, fmt.Sprintf("%d behind", behind))
+	}
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	}
+	return strings.Join(parts, " • ")
 }
 
 func BuildRows(results []RepoResult) []Row {
