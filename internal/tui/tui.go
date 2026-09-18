@@ -91,7 +91,7 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 	}
 
 	spin := spinner.New()
-	spin.Spinner = spinner.MiniDot
+	spin.Spinner = spinner.Line
 
 	return Model{
 		ctx:      ctx,

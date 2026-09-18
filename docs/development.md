@@ -27,7 +27,7 @@ git commit -m "docs: update readme [skip ci]"
 ## Trying the TUI locally
 
 ```bash
-# Regenerate the demo workspace (26 repos, lands in /tmp/gitsy-demo).
+# Regenerate the demo workspace (27 repos, lands in /tmp/gitsy-demo).
 ./scripts/setup-demo.sh
 
 # Run the CLI against it.

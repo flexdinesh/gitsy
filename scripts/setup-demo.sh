@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regenerates a demo workspace of child git repos covering gitsy's UI states:
-# clean, dirty, staged, ahead, behind, plus one linked worktree.
+# clean, dirty, staged, ahead, behind, loading, plus one linked worktree.
 # The output dir is git-ignored on purpose: nested .git dirs are neither
 # committable (git records them as gitlinks) nor portable (absolute paths).
 # Commit this script, not its output.
@@ -57,6 +57,12 @@ echo "teammate work" >> "$TARGET/.tmp-push/README.md"
 git -C "$TARGET/.tmp-push" commit -qam "teammate commit"
 git -C "$TARGET/.tmp-push" push -q origin main
 rm -rf "$TARGET/.tmp-push"
+
+# Loading: fetch hangs offline until gitsy's 30s timeout, so the live TUI
+# shows the spinner row on every run before it flips to stale.
+mk repo-loading
+git -C "$TARGET/repo-loading" config protocol.ext.allow always
+git -C "$TARGET/repo-loading" remote add origin "ext::sleep 120"
 
 # Bulk: 20 more repos with rotating states so the list overflows a
 # standard terminal and exercises scrolling. Dirty ones carry several
