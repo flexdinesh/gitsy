@@ -4,16 +4,12 @@ gitsy is a small Go CLI that scans a directory for Git repositories and linked w
 
 ## Install
 
-Make sure you have [go](https://go.dev) installed in your machine. If you're on MacOS, [brew](https://formulae.brew.sh/formula/go) is the easiest way.
-
-`@latest` resolves to the newest stable SemVer tag, such as `v0.1.0`. There is no moving `latest` Git tag.
-
 ```bash
-# Install the latest stable release.
-go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
+# Homebrew.
+brew install flexdinesh/tap/gitsy
 
-# Install a specific stable release.
-go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.1.0
+# Go.
+go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 ```
 
 ## Usage
