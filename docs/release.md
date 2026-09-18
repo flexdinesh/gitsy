@@ -2,25 +2,36 @@
 
 Releases are SemVer Git tags on `main`.
 
-## Current Policy
+## Release
 
-Stable releases are created manually from the latest code on `main` by running
-the GitHub Actions release workflow. Each dispatch creates the next `v0.1.x`
-release. If there are no `v0.1.x` release tags yet, the first dispatch creates
-`v0.1.0`.
+Required repository secret:
 
-Examples:
+- `HOMEBREW_TAP_TOKEN`: fine-grained token with contents write and pull request write access to `flexdinesh/homebrew-tap`.
 
-```bash
-v0.1.0
-v0.1.1
-v0.1.2
-```
+1. Merge release-ready code to `main`.
+2. Run the **Release** workflow. It requires no inputs.
+3. The workflow selects the next patch version, verifies the repository, then publishes the tag and GitHub Release with GoReleaser.
+4. It generates `Formula/gitsy.rb` and opens or updates a pull request against `flexdinesh/homebrew-tap`.
+5. Merge the tap pull request after its Homebrew checks pass.
 
-The GitHub Actions release workflow creates the tag, runs GoReleaser, and
-publishes macOS and Linux archives plus checksums.
+Each release publishes `checksums.txt` and four archives, where `<version>` omits the leading `v`:
 
-Pushes to `dev` still run automatic GoReleaser snapshot releases through CI.
+- `gitsy_<version>_darwin_amd64.tar.gz`
+- `gitsy_<version>_darwin_arm64.tar.gz`
+- `gitsy_<version>_linux_amd64.tar.gz`
+- `gitsy_<version>_linux_arm64.tar.gz`
+
+Each archive contains the native `gitsy` binary and README.
+
+The tap branch is deterministic per version, such as `gitsy-v0.1.2`. Rerunning a release whose tag still points to current `main` reuses the published artifacts and updates the same branch and pull request. Published artifacts are not rebuilt or replaced. The workflow publishes the GitHub Release before updating the tap, so rerunning it can repair a failed tap update.
+
+The tap repository owns Homebrew style, strict audit, install, and formula test checks before merge.
+
+## Version series
+
+`.release-version` contains the active `major.minor` release series. For example, `0.1` selects `v0.1.2` when `v0.1.1` is the latest release, then `v0.1.3`, and so on. A rerun from the same commit reuses its existing tag and release.
+
+To begin a new minor or major series, change `.release-version` in the repo. Changing it to `0.2` makes the next release `v0.2.0`; changing it to `1.0` makes the next release `v1.0.0`. Later releases continue incrementing that series' patch number.
 
 ## Installing
 
@@ -42,22 +53,6 @@ the release tag through GoReleaser linker flags.
 
 ```bash
 gitsy --version
-```
-
-## Switching Minor Versions
-
-Switch manually when `0.1.x` no longer feels right, for example when a release
-is the first meaningful preview rather than just the next small change.
-
-To switch, update `.github/workflows/release.yml` so the tag selector uses the
-new minor line, such as `v0.2.*`, and starts at `v0.2.0`.
-
-After that, releases should continue as:
-
-```bash
-v0.2.0
-v0.2.1
-v0.2.2
 ```
 
 Do not create a moving `latest` tag. Go already resolves `@latest` to the newest

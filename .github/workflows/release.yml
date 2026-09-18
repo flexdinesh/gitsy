@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-main
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out main
         uses: actions/checkout@v4
         with:
           ref: main
@@ -27,42 +27,53 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Test
-        run: go test ./...
-
-      - name: Select release tag
-        id: tag
+      - name: Select release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
           git fetch --tags --force
-
-          current="$(git tag --points-at HEAD -l 'v0.1.*' --sort=-v:refname | head -n 1)"
-          if [[ -n "$current" ]]; then
-            echo "tag=$current" >> "$GITHUB_OUTPUT"
-            echo "create=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          release_version="$(go run ./tools/release-version)"
+          tag_exists=false
+          if tag_commit="$(git rev-list -n 1 "$release_version" 2>/dev/null)"; then
+            head_commit="$(git rev-parse HEAD)"
+            if [[ "$tag_commit" != "$head_commit" ]]; then
+              echo "$release_version points to $tag_commit, not current main $head_commit" >&2
+              exit 1
+            fi
+            tag_exists=true
           fi
 
-          latest="$(git tag -l 'v0.1.*' --sort=-v:refname | head -n 1)"
-          if [[ -z "$latest" ]]; then
-            next="v0.1.0"
-          else
-            patch="${latest##*.}"
-            next="v0.1.$((patch + 1))"
+          release_exists=false
+          if gh release view "$release_version" >/dev/null 2>&1; then
+            release_exists=true
           fi
 
-          echo "tag=$next" >> "$GITHUB_OUTPUT"
-          echo "create=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$release_version" >> "$GITHUB_OUTPUT"
+          echo "number=${release_version#v}" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+          echo "release_exists=$release_exists" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
 
       - name: Create release tag
-        if: steps.tag.outputs.create == 'true'
+        if: steps.version.outputs.tag_exists != 'true'
         run: |
-          git tag "${{ steps.tag.outputs.tag }}"
-          git push origin "${{ steps.tag.outputs.tag }}"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Run GoReleaser
+        if: steps.version.outputs.release_exists != 'true'
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
@@ -70,3 +81,98 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stage release archives
+        if: steps.version.outputs.release_exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf release-dist
+          mkdir -p release-dist
+          cp dist/*.tar.gz dist/checksums.txt release-dist/
+
+      - name: Download existing release
+        if: steps.version.outputs.release_exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf release-dist
+          mkdir -p release-dist
+          gh release download "${{ steps.version.outputs.tag }}" --dir release-dist
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: flexdinesh/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+          fetch-depth: 0
+
+      - name: Generate Homebrew formula
+        run: |
+          go run ./tools/homebrew-formula -- \
+            --version "${{ steps.version.outputs.number }}" \
+            --tag "${{ steps.version.outputs.tag }}" \
+            --checksums release-dist/checksums.txt \
+            --output homebrew-tap/Formula/gitsy.rb
+
+      - name: Validate Homebrew formula syntax
+        run: ruby -c homebrew-tap/Formula/gitsy.rb
+
+      - name: Open Homebrew tap pull request
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.version.outputs.number }}"
+          tag="${{ steps.version.outputs.tag }}"
+          branch="gitsy-v${version}"
+          tap_repo="flexdinesh/homebrew-tap"
+
+          cd homebrew-tap
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+
+          if [[ -z "$(git status --porcelain -- Formula/gitsy.rb)" ]]; then
+            echo "Homebrew formula is already up to date for gitsy v${version}."
+            exit 0
+          fi
+
+          git add Formula/gitsy.rb
+          git commit -m "Update gitsy to v${version}"
+          git push --force-with-lease origin "HEAD:${branch}"
+
+          pr_number="$(gh pr list \
+            --repo "$tap_repo" \
+            --head "$branch" \
+            --state open \
+            --json number \
+            --jq '.[0].number // ""')"
+
+          pr_body="$(mktemp)"
+          cat > "$pr_body" <<EOF
+          Updates the gitsy formula to v${version}.
+
+          Source release: https://github.com/flexdinesh/gitsy/releases/tag/${tag}
+
+          This PR was generated by the gitsy release workflow.
+          EOF
+
+          if [[ -n "$pr_number" ]]; then
+            gh pr edit "$pr_number" \
+              --repo "$tap_repo" \
+              --title "Update gitsy to v${version}" \
+              --body-file "$pr_body"
+          else
+            gh pr create \
+              --repo "$tap_repo" \
+              --head "$branch" \
+              --base main \
+              --title "Update gitsy to v${version}" \
+              --body-file "$pr_body"
+          fi
