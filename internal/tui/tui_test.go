@@ -39,8 +39,8 @@ func TestUpdateReplacesLoadingRepoWhenInspectionCompletes(t *testing.T) {
 	if got.results[0].Loading {
 		t.Fatal("expected completed repo not to be loading")
 	}
-	if got.done != 1 {
-		t.Fatalf("expected one completed repo, got %d", got.done)
+	if got.pending() != 0 {
+		t.Fatalf("expected no pending repos, got %d", got.pending())
 	}
 }
 
@@ -102,9 +102,6 @@ func TestNewModelLimitsActiveInspections(t *testing.T) {
 
 	model := newTestModel(repos)
 
-	if model.active != maxInspecting {
-		t.Fatalf("expected %d active inspections, got %d", maxInspecting, model.active)
-	}
 	if model.next != maxInspecting {
 		t.Fatalf("expected next inspection index %d, got %d", maxInspecting, model.next)
 	}
@@ -128,9 +125,6 @@ func TestUpdateStartsNextInspectionWhenOneCompletes(t *testing.T) {
 
 	if command == nil {
 		t.Fatal("expected next inspection command")
-	}
-	if got.active != maxInspecting {
-		t.Fatalf("expected active inspections to stay at %d, got %d", maxInspecting, got.active)
 	}
 	if got.next != maxInspecting+1 {
 		t.Fatalf("expected next inspection index %d, got %d", maxInspecting+1, got.next)
@@ -159,8 +153,8 @@ func TestUpdateScrollsWithKeyboard(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(Model)
-	if model.selected != 1 || model.cursorRow != 2 {
-		t.Fatalf("expected down arrow to select repo 2 at row 2, got repo %d at row %d", model.selected+1, model.cursorRow)
+	if model.selected != 1 {
+		t.Fatalf("expected down arrow to select repo 2, got repo %d", model.selected+1)
 	}
 	if model.View() == initialView {
 		t.Fatal("expected down arrow to produce visible feedback")
@@ -168,8 +162,8 @@ func TestUpdateScrollsWithKeyboard(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	model = updated.(Model)
-	if model.selected != 2 || model.cursorRow != 4 {
-		t.Fatalf("expected j to select repo 3 at row 4, got repo %d at row %d", model.selected+1, model.cursorRow)
+	if model.selected != 2 {
+		t.Fatalf("expected j to select repo 3, got repo %d", model.selected+1)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
@@ -191,8 +185,8 @@ func TestUpdateScrollsWithMouseWheel(t *testing.T) {
 		Button: tea.MouseButtonWheelDown,
 	})
 	model = updated.(Model)
-	if model.selected != 2 || model.cursorRow != 4 {
-		t.Fatalf("expected wheel down to skip divider and select repo 3 at row 4, got repo %d at row %d", model.selected+1, model.cursorRow)
+	if model.selected != 2 || model.offset != 3 {
+		t.Fatalf("expected wheel down to select repo 3 at offset 3, got repo %d at offset %d", model.selected+1, model.offset)
 	}
 
 	updated, _ = model.Update(tea.MouseMsg{
@@ -200,8 +194,8 @@ func TestUpdateScrollsWithMouseWheel(t *testing.T) {
 		Button: tea.MouseButtonWheelUp,
 	})
 	model = updated.(Model)
-	if model.selected != 0 || model.cursorRow != 0 {
-		t.Fatalf("expected wheel up to return to repo 1, got repo %d at row %d", model.selected+1, model.cursorRow)
+	if model.selected != 0 || model.offset != 0 {
+		t.Fatalf("expected wheel up to return to repo 1, got repo %d at offset %d", model.selected+1, model.offset)
 	}
 
 	updated, _ = model.Update(tea.MouseMsg{
@@ -234,8 +228,8 @@ func TestMouseWheelScrollsWithinRepoDetails(t *testing.T) {
 	})
 	model = updated.(Model)
 
-	if model.selected != 0 || model.cursorRow != mouseWheelRows {
-		t.Fatalf("expected wheel to reach repo detail row %d, got repo %d at row %d", mouseWheelRows, model.selected+1, model.cursorRow)
+	if model.selected != 0 || model.offset != 1 {
+		t.Fatalf("expected wheel to pan to offset 1 on same repo, got repo %d at offset %d", model.selected+1, model.offset)
 	}
 	if view := model.View(); !strings.Contains(view, "three.go") {
 		t.Fatalf("expected scrolled detail row, got %q", view)
@@ -319,72 +313,20 @@ func TestTableRowsFillPanelWidth(t *testing.T) {
 	}
 }
 
-func TestLayoutSplitsTableAndInfoPanels(t *testing.T) {
+func TestLayoutUsesFullWidthTable(t *testing.T) {
 	model := newTestModel(testRepos("repo-a", "repo-b"))
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	got := updated.(Model)
 
-	if !got.infoShown {
-		t.Fatal("expected info panel at width 100")
+	if got.tableWidth != 100-2-padX*2 {
+		t.Fatalf("expected full-width table content %d, got %d", 100-2-padX*2, got.tableWidth)
 	}
-	if got.tableOuter+panelGap+got.infoOuter != 100 {
-		t.Fatalf("expected panels to fill width, got table %d + info %d", got.tableOuter, got.infoOuter)
+	if view := got.View(); strings.Contains(view, "NAVIGATE") {
+		t.Fatalf("expected no info panel, got static tips in view:\n%s", view)
 	}
-	if got.tableOuter >= 100 {
-		t.Fatalf("expected compact table narrower than terminal, got %d", got.tableOuter)
+	if got := lipgloss.Width(got.View()); got != 100 {
+		t.Fatalf("expected view to fit terminal width, got %d", got)
 	}
-	if got.tableWidth != got.tableOuter-2-padX*2 {
-		t.Fatalf("expected table content within panel, got %d in %d", got.tableWidth, got.tableOuter)
-	}
-}
-
-func TestLayoutSplitFollowsThirdsWithMinimums(t *testing.T) {
-	tableOuter, infoOuter, shown := layoutWidths(120)
-	if !shown || infoOuter != 40 || tableOuter != 79 {
-		t.Fatalf("expected 79/40 split at 120, got %d/%d shown=%v", tableOuter, infoOuter, shown)
-	}
-	if _, infoOuter, _ := layoutWidths(300); infoOuter != infoMaxOuter {
-		t.Fatalf("expected capped info %d at 300, got %d", infoMaxOuter, infoOuter)
-	}
-	if _, _, shown := layoutWidths(tableMinOuter + panelGap + infoMinOuter); !shown {
-		t.Fatal("expected split exactly at the combined minimums")
-	}
-	if _, _, shown := layoutWidths(tableMinOuter + panelGap + infoMinOuter - 1); shown {
-		t.Fatal("expected full-width table one below the combined minimums")
-	}
-}
-
-func TestLayoutDropsInfoPanelOnNarrowTerminals(t *testing.T) {
-	model := newTestModel(testRepos("repo-a", "repo-b"))
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
-	got := updated.(Model)
-
-	if got.infoShown {
-		t.Fatal("expected no info panel at width 60")
-	}
-	if got.tableOuter != 60 {
-		t.Fatalf("expected table to take full width, got %d", got.tableOuter)
-	}
-}
-
-func TestInfoPanelShowsStaticTips(t *testing.T) {
-	model := newTestModel(testRepos("repo-a", "repo-b", "repo-c", "repo-d", "repo-e", "repo-f", "repo-g", "repo-h"))
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
-	got := updated.(Model)
-
-	view := got.View()
-	for _, tip := range []string{"INFO", "NAVIGATE", "SELECT", "QUIT", "q · quit"} {
-		if !strings.Contains(view, tip) {
-			t.Fatalf("expected info tip %q in view:\n%s", tip, view)
-		}
-	}
-	before := got.View()
-	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
-	after := updated.(Model).View()
-	if !strings.Contains(after, "NAVIGATE") {
-		t.Fatalf("expected info panel to persist while table scrolls:\n%s", after)
-	}
-	_ = before
 }
 
 func TestViewShowsFooterAlwaysAndPositionOnNavigate(t *testing.T) {
@@ -394,17 +336,11 @@ func TestViewShowsFooterAlwaysAndPositionOnNavigate(t *testing.T) {
 		t.Fatalf("expected footer hint always, got %q", view)
 	}
 
-	model = newTestModel([]discover.Repo{testRepo("repo")})
-	updated, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	if view := updated.(Model).View(); !strings.Contains(view, "q quit") {
-		t.Fatalf("expected slim footer with info panel visible, got %q", view)
-	}
-
 	model = newTestModel(testRepos("repo-a", "repo-b", "repo-c", "repo-d"))
 	updated, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	view := updated.(Model).View()
 	if !strings.Contains(view, "q quit") {
-		t.Fatalf("expected slim footer for overflow, got %q", view)
+		t.Fatalf("expected footer hints, got %q", view)
 	}
 	if height := lipgloss.Height(view); height > 10 {
 		t.Fatalf("expected overflow view within terminal height, got %d", height)
@@ -437,8 +373,14 @@ func TestSelectionTracksRepoWhenEarlierRowsExpand(t *testing.T) {
 	})
 	model = updated.(Model)
 
-	if model.selected != 1 || model.cursorRow != 4 {
-		t.Fatalf("expected repo 2 to remain selected at new row 4, got repo %d at row %d", model.selected+1, model.cursorRow)
+	if model.selected != 1 {
+		t.Fatalf("expected repo 2 to remain selected, got repo %d", model.selected+1)
+	}
+	if first := firstRowOf(model.rows, 1); first != 4 {
+		t.Fatalf("expected repo 2 at new row 4, got row %d", first)
+	}
+	if model.offset > 4 || 4 >= model.offset+model.capacity {
+		t.Fatalf("expected selected repo visible at offset %d capacity %d", model.offset, model.capacity)
 	}
 }
 
@@ -614,7 +556,6 @@ func newTestModel(repos []discover.Repo) Model {
 func testRepo(name string) discover.Repo {
 	return discover.Repo{
 		Path:        "/tmp/" + name,
-		RealPath:    "/tmp/" + name,
 		DisplayName: name,
 		Source:      discover.SourceScan,
 	}
