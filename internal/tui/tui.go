@@ -2,13 +2,12 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/flexdinesh/gitsy/internal/discover"
@@ -19,35 +18,49 @@ import (
 
 type inspector func(context.Context, discover.Repo, bool, bool, func(string)) ui.RepoResult
 
-const (
-	minWidth       = 32
-	minTableHeight = 4
-	maxInspecting  = 8
-	columnGap      = 2
-	mouseWheelRows = 3
-)
+// rowEntry is one rendered table body line. All text stays plain here;
+// truncation and styling happen at render time so ANSI codes never
+// pollute width measurement.
+type rowEntry struct {
+	number    string // right-aligned digits only; marker is separate
+	marker    bool   // selected repo's first row shows ›
+	repo      string
+	status    string
+	divider   bool
+	tone      string
+	bold      bool
+	dim       bool
+	repoIndex int // -1 for dividers and empty states
+}
 
 type Model struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	results   []ui.RepoResult
-	noFetch   bool
-	sync      bool
-	warn      func(string)
-	spin      spinner.Model
-	repos     table.Model
-	width     int
-	height    int
-	overflow  bool
-	selected  int
-	cursorRow int
-	rowScroll bool
-	repoRows  []int
-	rowRepos  []int
-	done      int
-	next      int
-	active    int
-	inspect   inspector
+	ctx        context.Context
+	cancel     context.CancelFunc
+	results    []ui.RepoResult
+	noFetch    bool
+	sync       bool
+	warn       func(string)
+	spin       spinner.Model
+	width      int
+	height     int
+	overflow   bool
+	selected   int
+	cursorRow  int
+	offset     int
+	capacity   int
+	rowScroll  bool
+	rows       []rowEntry
+	repoRows   []int
+	rowRepos   []int
+	tableWidth int
+	tableOuter int
+	infoOuter  int
+	infoShown  bool
+	done       int
+	next       int
+	active     int
+	inspect    inspector
+	colWidths  [3]int
 }
 
 type repoDoneMsg struct {
@@ -83,24 +96,21 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 	}
 
 	spin := spinner.New()
-	spin.Spinner = spinner.Dot
+	spin.Spinner = spinner.MiniDot
 	active := min(maxInspecting, len(repos))
 
 	return Model{
-		ctx:     ctx,
-		cancel:  cancel,
-		results: results,
-		noFetch: noFetch,
-		sync:    syncRepos,
-		warn:    warn,
-		spin:    spin,
-		repos: table.New(
-			table.WithFocused(true),
-			table.WithStyles(tableStyles()),
-		),
-		next:    active,
-		active:  active,
-		inspect: inspect,
+		ctx:      ctx,
+		cancel:   cancel,
+		results:  results,
+		noFetch:  noFetch,
+		sync:     syncRepos,
+		warn:     warn,
+		spin:     spin,
+		next:     active,
+		active:   active,
+		inspect:  inspect,
+		capacity: minTableHeight,
 	}
 }
 
@@ -165,6 +175,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return model, nil
 }
 
+// View stacks three zones: borderless header bar, a panels row with the
+// compact table left and a static info panel right, borderless footer.
+// Only the table viewport scrolls; the info panel never moves.
 func (model Model) View() string {
 	width := model.width
 	height := model.height
@@ -174,14 +187,30 @@ func (model Model) View() string {
 	if height == 0 {
 		height = 24
 	}
-
 	width = max(width, minWidth)
-	title := model.renderTitle(width)
-	titleHeight := lipgloss.Height(title)
-	repoHeight := max(minTableHeight+2, height-titleHeight-1)
 
-	model.updateTableWithSize(width, repoHeight-2)
-	return strings.Join([]string{title, model.renderTable(width, repoHeight)}, "\n")
+	model.updateTableWithSize(width, tableViewportHeight(height))
+	tableBox := model.renderTable()
+	middle := tableBox
+	if model.infoShown {
+		infoBox := model.renderInfo(lipgloss.Height(tableBox))
+		gap := lipgloss.NewStyle().
+			Width(panelGap).
+			Height(lipgloss.Height(tableBox)).
+			Render("")
+		middle = lipgloss.JoinHorizontal(lipgloss.Top, tableBox, gap, infoBox)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left,
+		model.renderHeader(width),
+		middle,
+		model.renderFooter(width),
+	)
+}
+
+func tableViewportHeight(height int) int {
+	// Header bar (1) + table border (2) + column header (1) +
+	// header rule (1) + footer bar (1).
+	return max(minTableHeight, height-6)
 }
 
 func (model Model) inspectRepo(index int, repo discover.Repo) tea.Cmd {
@@ -215,27 +244,36 @@ func isQuitKey(message tea.KeyMsg) bool {
 }
 
 func (model *Model) navigate(message tea.KeyMsg) bool {
-	switch {
-	case key.Matches(message, model.repos.KeyMap.LineUp):
+	pressed := message.String()
+	switch pressed {
+	case "up", "k":
 		model.moveSelection(-1)
-	case key.Matches(message, model.repos.KeyMap.LineDown):
+	case "down", "j":
 		model.moveSelection(1)
-	case key.Matches(message, model.repos.KeyMap.PageUp):
-		model.scrollRows(-model.repos.Height())
-	case key.Matches(message, model.repos.KeyMap.PageDown):
-		model.scrollRows(model.repos.Height())
-	case key.Matches(message, model.repos.KeyMap.HalfPageUp):
-		model.scrollRows(-max(1, model.repos.Height()/2))
-	case key.Matches(message, model.repos.KeyMap.HalfPageDown):
-		model.scrollRows(max(1, model.repos.Height()/2))
-	case key.Matches(message, model.repos.KeyMap.GotoTop):
+	case "pgup":
+		model.scrollRows(-model.pageStep())
+	case "pgdown":
+		model.scrollRows(model.pageStep())
+	case "u", "ctrl+u":
+		model.scrollRows(-model.halfPageStep())
+	case "d", "ctrl+d":
+		model.scrollRows(model.halfPageStep())
+	case "home", "g":
 		model.selectRepo(0)
-	case key.Matches(message, model.repos.KeyMap.GotoBottom):
+	case "end", "G":
 		model.selectRepo(len(model.results) - 1)
 	default:
 		return false
 	}
 	return true
+}
+
+func (model Model) pageStep() int {
+	return max(1, model.capacity)
+}
+
+func (model Model) halfPageStep() int {
+	return max(1, model.capacity/2)
 }
 
 func (model *Model) moveSelection(delta int) {
@@ -247,7 +285,7 @@ func (model *Model) scrollRows(delta int) {
 		return
 	}
 
-	target := clamp(model.repos.Cursor()+delta, 0, len(model.rowRepos)-1)
+	target := clamp(model.cursorRow+delta, 0, len(model.rowRepos)-1)
 	step := 1
 	if delta < 0 {
 		step = -1
@@ -261,8 +299,7 @@ func (model *Model) scrollRows(delta int) {
 	}
 	model.cursorRow = target
 	model.rowScroll = true
-	model.repos.SetRows(model.tableRows())
-	model.moveTableCursor(target)
+	model.ensureVisible()
 }
 
 func (model *Model) selectRepo(index int) {
@@ -280,12 +317,34 @@ func (model *Model) updateTable() {
 	}
 
 	width := max(model.width, minWidth)
-	titleHeight := lipgloss.Height(model.renderTitle(width))
-	repoHeight := max(minTableHeight+2, model.height-titleHeight-1)
-	model.updateTableWithSize(width, repoHeight-2)
+	model.updateTableWithSize(width, tableViewportHeight(model.height))
 }
 
-func (model Model) renderTitle(width int) string {
+// renderHeader splits the bar: repo summary left, mode/pending right.
+// Plain text is measured first, styled last, so ANSI never affects layout.
+func (model Model) renderHeader(width int) string {
+	content := max(1, width-spaceSM*2)
+	plain := model.headerPlain(content)
+	return headerBarStyle(width).Render(model.styleHeaderLine(plain, content))
+}
+
+// headerPlain lays out the header text to exactly content width.
+func (model Model) headerPlain(content int) string {
+	left := ui.Title(model.results, len(model.results))
+	right := model.headerRight()
+	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) <= content {
+		return left + strings.Repeat(" ", content-runewidth.StringWidth(left)-runewidth.StringWidth(right)) + right
+	}
+	if runewidth.StringWidth(right)+1 <= content {
+		left = truncateCell(left, content-runewidth.StringWidth(right)-spaceSM)
+		return left + strings.Repeat(" ", content-runewidth.StringWidth(left)-runewidth.StringWidth(right)) + right
+	}
+	return truncateCell(left, content)
+}
+
+// headerRight is the header meta without the leading separator: the gap
+// between title and meta already separates them.
+func (model Model) headerRight() string {
 	pending := len(model.results) - model.done
 	mode := "fetch"
 	if model.noFetch {
@@ -294,31 +353,94 @@ func (model Model) renderTitle(width int) string {
 	if model.sync {
 		mode = "sync"
 	}
+	return strings.TrimPrefix(fmtStatus(mode, pending), " • ")
+}
 
-	title := ui.Title(model.results, len(model.results)) + fmtStatus(mode, pending)
-	return frameStyle(width, 1).Render(titleStyle(width).Render(title))
+// styleHeaderLine colors the title bright and the trailing meta dim by
+// re-splitting the already-laid-out plain line.
+func (model Model) styleHeaderLine(plain string, content int) string {
+	right := model.headerRight()
+	if runewidth.StringWidth(right) < runewidth.StringWidth(plain) && strings.HasSuffix(plain, right) {
+		leftPart := strings.TrimSuffix(plain[:len(plain)-len(right)], " ")
+		gap := strings.Repeat(" ", content-runewidth.StringWidth(leftPart)-runewidth.StringWidth(right))
+		return headerTitleStyle().Render(leftPart) + gap + headerMetaStyle().Render(right)
+	}
+	return headerTitleStyle().Render(plain)
+}
+
+// renderTable wraps the table body in the left bordered panel.
+func (model Model) renderTable() string {
+	return tableStyle(model.tableOuter).Render(model.renderTableBody())
+}
+
+// renderInfo draws the static right panel. boxHeight matches the table
+// panel so both bottoms align; tips are padded to fill, never scrolled.
+func (model Model) renderInfo(boxHeight int) string {
+	content := max(1, model.infoOuter-2-padX*2)
+	lines := model.infoLines(content)
+	want := max(1, boxHeight-2)
+	for len(lines) < want {
+		lines = append(lines, "")
+	}
+	lines = lines[:min(len(lines), want)]
+	return infoStyle(model.infoOuter).Render(strings.Join(lines, "\n"))
+}
+
+// infoLines builds the static tips panel: plain text, truncation-safe.
+func (model Model) infoLines(width int) []string {
+	lines := []string{
+		columnHeaderStyle().Render(truncateCell("INFO", width)),
+		dividerStyle().Render(strings.Repeat("─", max(1, width))),
+	}
+	sections := []struct {
+		label   string
+		entries []string
+	}{
+		{"NAVIGATE", []string{"↑/↓ j/k · move", "PgUp/PgDn · page", "g / G · ends", "wheel · scroll"}},
+		{"SELECT", []string{"› · current repo"}},
+		{"QUIT", []string{"q · quit"}},
+	}
+	for index, section := range sections {
+		if index > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, infoSectionStyle().Render(truncateCell(section.label, width)))
+		for _, entry := range section.entries {
+			lines = append(lines, truncateCell(entry, width))
+		}
+	}
+	return lines
+}
+
+// layoutWidths splits the terminal into table and info panels: roughly
+// 2/3 table and 1/3 info. Either panel below its minimum collapses to a
+// full-width table with the footer carrying the key hints instead.
+func layoutWidths(termWidth int) (tableOuter int, infoOuter int, infoShown bool) {
+	infoOuter = clamp(termWidth/3, infoMinOuter, infoMaxOuter)
+	if termWidth-infoOuter-panelGap < tableMinOuter {
+		return termWidth, 0, false
+	}
+	return termWidth - infoOuter - panelGap, infoOuter, true
+}
+
+// renderTitle is kept for tests; it renders the header text without chrome.
+func (model Model) renderTitle(width int) string {
+	return model.headerPlain(max(1, width-2-padX*2))
 }
 
 func (model *Model) updateTableWithSize(width int, height int) {
-	tableWidth := max(1, width-4)
-	tableHeight := max(minTableHeight, height)
+	model.tableOuter, model.infoOuter, model.infoShown = layoutWidths(width)
+	tableWidth := max(1, model.tableOuter-2-padX*2)
+	model.tableWidth = tableWidth
 	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.results)
-	rows, repoRows, rowRepos := model.buildTableRows()
+	model.colWidths = [3]int{numberWidth, repoWidth, statusWidth}
+	entries, repoRows, rowRepos := model.buildRows()
+	model.rows = entries
 	model.repoRows = repoRows
 	model.rowRepos = rowRepos
 
-	model.repos.SetColumns([]table.Column{
-		{Title: "#", Width: numberWidth},
-		{Title: "REPO", Width: repoWidth},
-		{Title: "STATUS", Width: statusWidth},
-	})
-	model.repos.SetRows(rows)
-	model.repos.SetWidth(tableWidth)
-	model.repos.SetHeight(tableHeight)
-	model.overflow = len(model.repos.Rows()) > model.repos.Height()
-	if model.overflow {
-		model.repos.SetHeight(max(minTableHeight-1, tableHeight-1))
-	}
+	model.capacity = max(1, height)
+	model.overflow = len(entries) > model.capacity
 	if len(model.repoRows) > 0 {
 		model.selected = clamp(model.selected, 0, len(model.repoRows)-1)
 		if model.rowScroll {
@@ -329,25 +451,24 @@ func (model *Model) updateTableWithSize(width int, height int) {
 		} else {
 			model.cursorRow = model.repoRows[model.selected]
 		}
-		model.moveTableCursor(model.cursorRow)
 	}
+	model.ensureVisible()
 }
 
-func (model *Model) moveTableCursor(target int) {
-	current := model.repos.Cursor()
-	if target < current {
-		model.repos.MoveUp(current - target)
+func (model *Model) ensureVisible() {
+	if len(model.rows) == 0 {
+		model.offset = 0
 		return
 	}
-	model.repos.MoveDown(target - current)
-}
-
-func (model Model) renderTable(width int, height int) string {
-	content := model.repos.View()
-	if model.overflow {
-		content += "\n" + model.renderScrollHint(width)
+	model.cursorRow = clamp(model.cursorRow, 0, len(model.rows)-1)
+	if model.cursorRow < model.offset {
+		model.offset = model.cursorRow
 	}
-	return frameStyle(width, max(minTableHeight, height-2)).Render(content)
+	if model.cursorRow >= model.offset+model.capacity {
+		model.offset = model.cursorRow - model.capacity + 1
+	}
+	maxOffset := max(0, len(model.rows)-model.capacity)
+	model.offset = clamp(model.offset, 0, maxOffset)
 }
 
 func (model Model) resultsWithSpinner() []ui.RepoResult {
@@ -361,14 +482,14 @@ func (model Model) resultsWithSpinner() []ui.RepoResult {
 	return results
 }
 
-func (model Model) tableRows() []table.Row {
-	rows, _, _ := model.buildTableRows()
+func (model Model) tableRows() []rowEntry {
+	rows, _, _ := model.buildRows()
 	return rows
 }
 
-func (model Model) buildTableRows() ([]table.Row, []int, []int) {
+func (model Model) buildRows() ([]rowEntry, []int, []int) {
 	results := model.resultsWithSpinner()
-	tableRows := []table.Row{}
+	entries := []rowEntry{}
 	repoRows := make([]int, 0, len(results))
 	rowRepos := []int{}
 	for resultIndex, result := range results {
@@ -376,56 +497,142 @@ func (model Model) buildTableRows() ([]table.Row, []int, []int) {
 		if len(rows) == 0 {
 			continue
 		}
-		if len(tableRows) > 0 {
-			tableRows = append(tableRows, table.Row{"", "", ""})
+		if len(entries) > 0 {
+			entries = append(entries, rowEntry{divider: true, repoIndex: -1})
 			rowRepos = append(rowRepos, -1)
 		}
 
-		repoRows = append(repoRows, len(tableRows))
+		repoRows = append(repoRows, len(entries))
+		digits := len(strconv.Itoa(max(1, len(results))))
 		for rowIndex, row := range rows {
 			number := ""
+			marker := false
 			repo := ""
 			if rowIndex == 0 {
-				marker := " "
-				if resultIndex == model.selected {
-					marker = "›"
-				}
-				number = marker + strconv.Itoa(resultIndex+1)
+				marker = resultIndex == model.selected
+				number = fmt.Sprintf("%*d", digits, resultIndex+1)
 				repo = row.Repo
 			}
-			tableRows = append(tableRows, table.Row{
-				number,
-				repo,
-				model.renderStatusCell(row),
+			entries = append(entries, rowEntry{
+				number:    number,
+				marker:    marker,
+				repo:      repo,
+				status:    row.Text,
+				tone:      row.Tone,
+				bold:      row.Bold,
+				dim:       row.Dim,
+				repoIndex: resultIndex,
 			})
 			rowRepos = append(rowRepos, resultIndex)
 		}
 	}
 
-	if len(tableRows) == 0 {
+	if len(entries) == 0 {
 		message := ui.EmptyMessage(len(model.results))
 		if message == "" {
 			message = "No repositories to display."
 		}
-		return []table.Row{{"", "", message}}, nil, []int{-1}
+		return []rowEntry{{status: message, repoIndex: -1}}, nil, []int{-1}
 	}
 
-	return tableRows, repoRows, rowRepos
+	return entries, repoRows, rowRepos
 }
 
-func (model Model) renderStatusCell(row ui.Row) string {
-	return toneStyle(row.Tone, row.Bold, row.Dim).Render(row.Text)
+// lineWidth is the full table body width: columns plus gaps.
+func (model Model) lineWidth() int {
+	return model.colWidths[0] + model.colWidths[1] + model.colWidths[2] + columnGap*2
+}
+
+func truncateCell(value string, width int) string {
+	return runewidth.Truncate(value, max(0, width), "…")
+}
+
+func padCell(value string, width int) string {
+	if missing := width - runewidth.StringWidth(value); missing > 0 {
+		return value + strings.Repeat(" ", missing)
+	}
+	return value
+}
+
+// renderTableBody draws a real table: column header, full-width rule,
+// then the visible window of rows. Plain text is measured first, styles
+// applied last, so ANSI never affects layout.
+func (model Model) renderTableBody() string {
+	numberWidth, repoWidth, statusWidth := model.colWidths[0], model.colWidths[1], model.colWidths[2]
+	gap := strings.Repeat(" ", columnGap)
+	header := padCell(truncateCell("#", numberWidth), numberWidth) + gap +
+		padCell(truncateCell("REPO", repoWidth), repoWidth) + gap +
+		padCell(truncateCell("STATUS", statusWidth), statusWidth)
+	lines := []string{
+		columnHeaderStyle().Render(header),
+		dividerStyle().Render(strings.Repeat("─", max(1, model.lineWidth()))),
+	}
+
+	visible := model.visibleRows()
+	if len(visible) == 0 {
+		message := ui.EmptyMessage(len(model.results))
+		if message == "" {
+			message = "No repositories to display."
+		}
+		lines = append(lines, truncateCell(message, max(1, model.lineWidth())))
+		return strings.Join(lines, "\n")
+	}
+	for _, entry := range visible {
+		lines = append(lines, model.renderRow(entry))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (model Model) visibleRows() []rowEntry {
+	if len(model.rows) == 0 || model.capacity <= 0 {
+		return nil
+	}
+	start := clamp(model.offset, 0, max(0, len(model.rows)-1))
+	end := min(start+max(1, model.capacity), len(model.rows))
+	return model.rows[start:end]
+}
+
+// renderRow draws one body line. Selected rows get per-segment styles
+// that each carry the background, keeping the highlight continuous
+// across the full row while preserving status tones.
+func (model Model) renderRow(entry rowEntry) string {
+	if entry.divider {
+		return dividerStyle().Render(strings.Repeat("─", max(1, model.lineWidth())))
+	}
+	numberWidth, repoWidth, statusWidth := model.colWidths[0], model.colWidths[1], model.colWidths[2]
+	gap := strings.Repeat(" ", columnGap)
+	marker := " "
+	if entry.marker {
+		marker = iconSelected
+	}
+	number := padCell(truncateCell(marker+" "+entry.number, numberWidth), numberWidth)
+	repo := padCell(truncateCell(entry.repo, repoWidth), repoWidth)
+	status := padCell(truncateCell(entry.status, statusWidth), statusWidth)
+	if entry.repoIndex == model.selected && entry.repoIndex >= 0 {
+		mark := " "
+		if entry.marker {
+			mark = selectedMarkerStyle().Render(iconSelected)
+		}
+		return mark +
+			selectedNumStyle().Render(padCell(truncateCell(" "+entry.number, numberWidth-1), numberWidth-1)) +
+			gap +
+			selectedNumStyle().Render(repo) +
+			gap +
+			toneStyle(entry.tone, entry.bold, entry.dim).Render(status)
+	}
+	return number + gap + repo + gap + toneStyle(entry.tone, entry.bold, entry.dim).Render(status)
 }
 
 func columnWidths(width int, results []ui.RepoResult) (int, int, int) {
-	numberWidth := max(2, len(strconv.Itoa(len(results)))+1)
-	contentWidth := max(16, width-numberWidth-columnGap*3)
+	// Marker + space + right-aligned digits, e.g. "› 1" / "  26".
+	numberWidth := max(3, len(strconv.Itoa(max(1, len(results))))+2)
+	contentWidth := max(16, width-numberWidth-columnGap*2)
 	longestRepoName := runewidth.StringWidth("REPO")
 	for _, result := range results {
 		longestRepoName = max(longestRepoName, runewidth.StringWidth(result.Repo.DisplayName))
 	}
 
-	maxRepoWidth := max(8, contentWidth*35/100)
+	maxRepoWidth := min(maxRepoWidthCap, max(8, contentWidth*35/100))
 	minRepoWidth := min(18, maxRepoWidth)
 	repoWidth := clamp(longestRepoName, minRepoWidth, maxRepoWidth)
 	statusWidth := max(8, contentWidth-repoWidth)
@@ -439,81 +646,49 @@ func fmtStatus(mode string, pending int) string {
 	return " • " + mode + " • " + strconv.Itoa(pending) + " pending"
 }
 
-func tableStyles() table.Styles {
-	styles := table.DefaultStyles()
-	styles.Header = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Bold(true).
-		PaddingRight(columnGap).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("8")).
-		BorderBottom(true)
-	styles.Cell = lipgloss.NewStyle().PaddingRight(columnGap)
-	styles.Selected = lipgloss.NewStyle().
-		Background(lipgloss.Color("236")).
-		Bold(true)
-	return styles
+// renderFooter is always shown: position left, key hints right.
+// Both parts collapse gracefully at narrow widths.
+func (model Model) renderFooter(width int) string {
+	return footerStyle(width).Render(model.footerPlain(max(1, width-spaceSM*2)))
 }
 
-func frameStyle(width int, height int) lipgloss.Style {
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8")).
-		Width(max(1, width-2)).
-		Height(max(1, height)).
-		Padding(0, 1)
-}
-
-func titleStyle(width int) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("14")).
-		Bold(true).
-		MaxWidth(max(1, width-4))
-}
-
-func (model Model) renderScrollHint(width int) string {
-	position := strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.results))
-	available := max(1, width-4)
-	options := []string{
-		position + " repos • ↑/↓ j/k • PgUp/PgDn • wheel • q quit",
-		position + " • ↑/↓ j/k • pg • wheel • q",
-		position + " • ↑↓ • wheel • q",
+// footerPlain lays out the footer text to exactly content width. When
+// the info panel is visible it already carries the key hints, so the
+// footer keeps just position and quit.
+func (model Model) footerPlain(content int) string {
+	position := ""
+	if len(model.results) > 0 {
+		position = strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.results))
 	}
-	hint := options[len(options)-1]
-	for _, option := range options {
-		if runewidth.StringWidth(option) <= available {
+	hints := []string{
+		"↑/↓ j/k • PgUp/PgDn • wheel • q quit",
+		"↑/↓ j/k • pg • wheel • q",
+		"↑↓ • wheel • q",
+	}
+	if model.infoShown {
+		hints = []string{"q quit"}
+	}
+	hint := hints[len(hints)-1]
+	for _, option := range hints {
+		if runewidth.StringWidth(option) <= max(1, content-runewidth.StringWidth(position)-spaceSM) || position == "" && runewidth.StringWidth(option) <= content {
 			hint = option
 			break
 		}
 	}
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Faint(true).
-		Render(runewidth.Truncate(hint, available, "…"))
+	if position == "" {
+		return truncateCell(hint, content)
+	}
+	if runewidth.StringWidth(position)+spaceSM+runewidth.StringWidth(hint) <= content {
+		return position + strings.Repeat(" ", content-runewidth.StringWidth(position)-runewidth.StringWidth(hint)) + hint
+	}
+	if runewidth.StringWidth(position) <= content {
+		return truncateCell(position+" • "+hint, content)
+	}
+	return truncateCell(hint, content)
 }
 
-func toneStyle(tone string, bold bool, dim bool) lipgloss.Style {
-	style := lipgloss.NewStyle().Bold(bold).Faint(dim)
-	switch tone {
-	case "red":
-		return style.Foreground(lipgloss.Color("9"))
-	case "green":
-		return style.Foreground(lipgloss.Color("10"))
-	case "yellow":
-		return style.Foreground(lipgloss.Color("11"))
-	case "blue":
-		return style.Foreground(lipgloss.Color("12"))
-	case "magenta":
-		return style.Foreground(lipgloss.Color("13"))
-	case "cyan":
-		return style.Foreground(lipgloss.Color("14"))
-	case "gray":
-		return style.Foreground(lipgloss.Color("8"))
-	case "white":
-		return style.Foreground(lipgloss.Color("15"))
-	default:
-		return style
-	}
+func (model Model) renderScrollHint(width int) string {
+	return model.footerPlain(max(1, width))
 }
 
 func clamp(value int, minValue int, maxValue int) int {

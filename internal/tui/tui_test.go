@@ -10,6 +10,7 @@ import (
 	"github.com/flexdinesh/gitsy/internal/discover"
 	"github.com/flexdinesh/gitsy/internal/status"
 	"github.com/flexdinesh/gitsy/internal/ui"
+	"github.com/mattn/go-runewidth"
 )
 
 func TestNewModelInitializesReposAsLoading(t *testing.T) {
@@ -142,11 +143,11 @@ func TestWindowSizeBoundsRepoViewport(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	got := updated.(Model)
 
-	if got.repos.Width() <= 0 || got.repos.Width() > 80 {
-		t.Fatalf("expected table width within terminal, got %d", got.repos.Width())
+	if got.tableWidth <= 0 || got.tableWidth > 80 {
+		t.Fatalf("expected table width within terminal, got %d", got.tableWidth)
 	}
-	if got.repos.Height() <= 0 || got.repos.Height() >= 20 {
-		t.Fatalf("expected table viewport height within terminal, got %d", got.repos.Height())
+	if got.capacity <= 0 || got.capacity >= 20 {
+		t.Fatalf("expected table viewport height within terminal, got %d", got.capacity)
 	}
 }
 
@@ -158,8 +159,8 @@ func TestUpdateScrollsWithKeyboard(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(Model)
-	if model.selected != 1 || model.repos.Cursor() != 2 {
-		t.Fatalf("expected down arrow to select repo 2 at row 2, got repo %d at row %d", model.selected+1, model.repos.Cursor())
+	if model.selected != 1 || model.cursorRow != 2 {
+		t.Fatalf("expected down arrow to select repo 2 at row 2, got repo %d at row %d", model.selected+1, model.cursorRow)
 	}
 	if model.View() == initialView {
 		t.Fatal("expected down arrow to produce visible feedback")
@@ -167,8 +168,8 @@ func TestUpdateScrollsWithKeyboard(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	model = updated.(Model)
-	if model.selected != 2 || model.repos.Cursor() != 4 {
-		t.Fatalf("expected j to select repo 3 at row 4, got repo %d at row %d", model.selected+1, model.repos.Cursor())
+	if model.selected != 2 || model.cursorRow != 4 {
+		t.Fatalf("expected j to select repo 3 at row 4, got repo %d at row %d", model.selected+1, model.cursorRow)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
@@ -190,8 +191,8 @@ func TestUpdateScrollsWithMouseWheel(t *testing.T) {
 		Button: tea.MouseButtonWheelDown,
 	})
 	model = updated.(Model)
-	if model.selected != 2 || model.repos.Cursor() != 4 {
-		t.Fatalf("expected wheel down to select repo 3 at row 4, got repo %d at row %d", model.selected+1, model.repos.Cursor())
+	if model.selected != 2 || model.cursorRow != 4 {
+		t.Fatalf("expected wheel down to skip divider and select repo 3 at row 4, got repo %d at row %d", model.selected+1, model.cursorRow)
 	}
 
 	updated, _ = model.Update(tea.MouseMsg{
@@ -199,8 +200,8 @@ func TestUpdateScrollsWithMouseWheel(t *testing.T) {
 		Button: tea.MouseButtonWheelUp,
 	})
 	model = updated.(Model)
-	if model.selected != 0 || model.repos.Cursor() != 0 {
-		t.Fatalf("expected wheel up to return to repo 1, got repo %d at row %d", model.selected+1, model.repos.Cursor())
+	if model.selected != 0 || model.cursorRow != 0 {
+		t.Fatalf("expected wheel up to return to repo 1, got repo %d at row %d", model.selected+1, model.cursorRow)
 	}
 
 	updated, _ = model.Update(tea.MouseMsg{
@@ -233,8 +234,8 @@ func TestMouseWheelScrollsWithinRepoDetails(t *testing.T) {
 	})
 	model = updated.(Model)
 
-	if model.selected != 0 || model.repos.Cursor() != mouseWheelRows {
-		t.Fatalf("expected wheel to reach repo detail row %d, got repo %d at row %d", mouseWheelRows, model.selected+1, model.repos.Cursor())
+	if model.selected != 0 || model.cursorRow != mouseWheelRows {
+		t.Fatalf("expected wheel to reach repo detail row %d, got repo %d at row %d", mouseWheelRows, model.selected+1, model.cursorRow)
 	}
 	if view := model.View(); !strings.Contains(view, "three.go") {
 		t.Fatalf("expected scrolled detail row, got %q", view)
@@ -260,20 +261,150 @@ func TestUpdateIgnoresOtherMouseEvents(t *testing.T) {
 	}
 }
 
-func TestViewShowsScrollHintOnlyOnOverflow(t *testing.T) {
-	const hint = "↑/↓ j/k"
+func TestViewSeparatesChromeFromTablePanel(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	view := updated.(Model).View()
+	lines := strings.Split(view, "\n")
 
+	top, bottom := -1, -1
+	for index, line := range lines {
+		if strings.Contains(line, "╭") {
+			top = index
+		}
+		if strings.Contains(line, "╰") {
+			bottom = index
+		}
+	}
+	if top <= 0 {
+		t.Fatalf("expected borderless header above table panel, got border at line %d:\n%s", top, view)
+	}
+	if bottom < 0 || bottom >= len(lines)-1 {
+		t.Fatalf("expected borderless footer below table panel:\n%s", view)
+	}
+	if got := lipgloss.Width(view); got != 80 {
+		t.Fatalf("expected chrome zones to fit terminal width, got %d", got)
+	}
+}
+
+func TestHeaderSplitsTitleAndMeta(t *testing.T) {
 	model := newTestModel([]discover.Repo{testRepo("repo")})
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
-	if view := updated.(Model).View(); strings.Contains(view, hint) {
-		t.Fatalf("expected no scroll hint when rows fit, got %q", view)
+	header := updated.(Model).renderHeader(80)
+
+	if !strings.Contains(header, "gitsy") || !strings.Contains(header, "pending") {
+		t.Fatalf("expected title left and mode right in header, got %q", header)
+	}
+	if strings.Contains(header, "• fetch") && strings.Index(header, "repos") > strings.Index(header, "• fetch") {
+		t.Fatalf("expected meta without leading separator, got %q", header)
+	}
+}
+
+func TestFooterSplitsPositionAndHints(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	footer := updated.(Model).renderFooter(80)
+
+	if !strings.Contains(footer, "1/2") || !strings.Contains(footer, "q") {
+		t.Fatalf("expected position left and hints right in footer, got %q", footer)
+	}
+}
+
+func TestTableRowsFillPanelWidth(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")})
+	model.updateTableWithSize(80, 10)
+
+	if model.lineWidth() != model.tableWidth {
+		t.Fatalf("expected rows to fill panel width %d, got %d", model.tableWidth, model.lineWidth())
+	}
+}
+
+func TestLayoutSplitsTableAndInfoPanels(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	got := updated.(Model)
+
+	if !got.infoShown {
+		t.Fatal("expected info panel at width 100")
+	}
+	if got.tableOuter+panelGap+got.infoOuter != 100 {
+		t.Fatalf("expected panels to fill width, got table %d + info %d", got.tableOuter, got.infoOuter)
+	}
+	if got.tableOuter >= 100 {
+		t.Fatalf("expected compact table narrower than terminal, got %d", got.tableOuter)
+	}
+	if got.tableWidth != got.tableOuter-2-padX*2 {
+		t.Fatalf("expected table content within panel, got %d in %d", got.tableWidth, got.tableOuter)
+	}
+}
+
+func TestLayoutSplitFollowsThirdsWithMinimums(t *testing.T) {
+	tableOuter, infoOuter, shown := layoutWidths(120)
+	if !shown || infoOuter != 40 || tableOuter != 79 {
+		t.Fatalf("expected 79/40 split at 120, got %d/%d shown=%v", tableOuter, infoOuter, shown)
+	}
+	if _, infoOuter, _ := layoutWidths(300); infoOuter != infoMaxOuter {
+		t.Fatalf("expected capped info %d at 300, got %d", infoMaxOuter, infoOuter)
+	}
+	if _, _, shown := layoutWidths(tableMinOuter + panelGap + infoMinOuter); !shown {
+		t.Fatal("expected split exactly at the combined minimums")
+	}
+	if _, _, shown := layoutWidths(tableMinOuter + panelGap + infoMinOuter - 1); shown {
+		t.Fatal("expected full-width table one below the combined minimums")
+	}
+}
+
+func TestLayoutDropsInfoPanelOnNarrowTerminals(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	got := updated.(Model)
+
+	if got.infoShown {
+		t.Fatal("expected no info panel at width 60")
+	}
+	if got.tableOuter != 60 {
+		t.Fatalf("expected table to take full width, got %d", got.tableOuter)
+	}
+}
+
+func TestInfoPanelShowsStaticTips(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b", "repo-c", "repo-d", "repo-e", "repo-f", "repo-g", "repo-h"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	got := updated.(Model)
+
+	view := got.View()
+	for _, tip := range []string{"INFO", "NAVIGATE", "SELECT", "QUIT", "q · quit"} {
+		if !strings.Contains(view, tip) {
+			t.Fatalf("expected info tip %q in view:\n%s", tip, view)
+		}
+	}
+	before := got.View()
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
+	after := updated.(Model).View()
+	if !strings.Contains(after, "NAVIGATE") {
+		t.Fatalf("expected info panel to persist while table scrolls:\n%s", after)
+	}
+	_ = before
+}
+
+func TestViewShowsFooterAlwaysAndPositionOnNavigate(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo")})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	if view := updated.(Model).View(); !strings.Contains(view, "↑/↓ j/k") {
+		t.Fatalf("expected footer hint always, got %q", view)
+	}
+
+	model = newTestModel([]discover.Repo{testRepo("repo")})
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	if view := updated.(Model).View(); !strings.Contains(view, "q quit") {
+		t.Fatalf("expected slim footer with info panel visible, got %q", view)
 	}
 
 	model = newTestModel(testRepos("repo-a", "repo-b", "repo-c", "repo-d"))
 	updated, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	view := updated.(Model).View()
-	if !strings.Contains(view, hint) {
-		t.Fatalf("expected scroll hint for overflow, got %q", view)
+	if !strings.Contains(view, "q quit") {
+		t.Fatalf("expected slim footer for overflow, got %q", view)
 	}
 	if height := lipgloss.Height(view); height > 10 {
 		t.Fatalf("expected overflow view within terminal height, got %d", height)
@@ -306,8 +437,8 @@ func TestSelectionTracksRepoWhenEarlierRowsExpand(t *testing.T) {
 	})
 	model = updated.(Model)
 
-	if model.selected != 1 || model.repos.Cursor() != 4 {
-		t.Fatalf("expected repo 2 to remain selected at new row 4, got repo %d at row %d", model.selected+1, model.repos.Cursor())
+	if model.selected != 1 || model.cursorRow != 4 {
+		t.Fatalf("expected repo 2 to remain selected at new row 4, got repo %d at row %d", model.selected+1, model.cursorRow)
 	}
 }
 
@@ -318,10 +449,10 @@ func TestViewRendersContainerBorders(t *testing.T) {
 	view := updated.(Model).View()
 
 	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
-		t.Fatalf("expected title and table container borders, got %q", view)
+		t.Fatalf("expected single outer container border, got %q", view)
 	}
-	if width := lipgloss.Width(updated.(Model).renderTitle(80)); width != 80 {
-		t.Fatalf("expected title border to fit terminal width, got %d", width)
+	if width := lipgloss.Width(view); width != 80 {
+		t.Fatalf("expected outer container to fit terminal width, got %d", width)
 	}
 	if !strings.Contains(view, "─") {
 		t.Fatalf("expected table header border, got %q", view)
@@ -337,7 +468,7 @@ func TestTableRowsShowSpinnerInLoadingStatusCell(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected one table row, got %d", len(rows))
 	}
-	if rows[0][0] != "›1" || rows[0][1] != "repo" || !strings.Contains(rows[0][2], ". fetching status...") {
+	if rows[0].number != "1" || !rows[0].marker || rows[0].repo != "repo" || !strings.Contains(rows[0].status, "fetching status…") {
 		t.Fatalf("expected spinner in loading status cell, got %#v", rows[0])
 	}
 }
@@ -358,18 +489,18 @@ func TestTableRowsUseContinuationRowsForRepoStatus(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("expected branch plus two status rows, got %d rows: %#v", len(rows), rows)
 	}
-	if rows[0][0] != "›1" || rows[0][1] != "repo" {
+	if rows[0].number != "1" || !rows[0].marker || rows[0].repo != "repo" {
 		t.Fatalf("expected repo name in first column, got %#v", rows[0])
 	}
-	if rows[1][0] != "" || rows[1][1] != "" || rows[2][0] != "" || rows[2][1] != "" {
+	if rows[1].number != "" || rows[1].repo != "" || rows[2].number != "" || rows[2].repo != "" {
 		t.Fatalf("expected continuation rows to leave repo column empty, got %#v", rows)
 	}
 	for _, row := range rows {
-		if strings.Contains(row[2], "\n") {
-			t.Fatalf("expected no embedded newlines in bubbles table cells, got %#v", rows)
+		if strings.Contains(row.status, "\n") {
+			t.Fatalf("expected no embedded newlines in table cells, got %#v", rows)
 		}
 	}
-	if !strings.Contains(rows[1][2], "modified changed.go") || !strings.Contains(rows[2][2], "untracked new.go") {
+	if !strings.Contains(rows[1].status, "modified changed.go") || !strings.Contains(rows[2].status, "untracked new.go") {
 		t.Fatalf("expected status entries in continuation rows, got %#v", rows)
 	}
 }
@@ -386,24 +517,75 @@ func TestTableRowsShowCleanRepoOnce(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected one clean repo table row, got %d rows: %#v", len(rows), rows)
 	}
-	if rows[0][0] != "›1" || rows[0][1] != "repo" || !strings.Contains(rows[0][2], "main ✓ clean") {
+	if rows[0].number != "1" || !rows[0].marker || rows[0].repo != "repo" || !strings.Contains(rows[0].status, "main ✓ clean") {
 		t.Fatalf("expected single branch summary clean row, got %#v", rows)
 	}
 }
 
-func TestTableRowsAddSpacingBetweenRepos(t *testing.T) {
+func TestTableRowsSeparateReposWithDividers(t *testing.T) {
 	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")})
 
 	rows := model.tableRows()
 
 	if len(rows) != 3 {
-		t.Fatalf("expected two repo groups separated by one blank row, got %d rows: %#v", len(rows), rows)
+		t.Fatalf("expected two repo rows separated by one divider, got %d rows: %#v", len(rows), rows)
 	}
-	if rows[1][0] != "" || rows[1][1] != "" || rows[1][2] != "" {
-		t.Fatalf("expected blank spacer row between repos, got %#v", rows)
+	if !rows[1].divider || rows[1].repoIndex != -1 {
+		t.Fatalf("expected divider entry between repos, got %#v", rows)
 	}
-	if rows[2][0] != " 2" || rows[2][1] != "repo-b" {
-		t.Fatalf("expected second repo after spacer row, got %#v", rows)
+	if rows[2].number != "2" || rows[2].marker || rows[2].repo != "repo-b" {
+		t.Fatalf("expected second repo after divider, got %#v", rows)
+	}
+}
+
+func TestDividersStayHairlinesAroundSelection(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b", "repo-c"))
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+
+	rows := model.tableRows()
+	if !rows[1].divider || !rows[3].divider {
+		t.Fatalf("expected hairline dividers around selected repo, got %#v", rows)
+	}
+	if rows[1].repoIndex != -1 || rows[3].repoIndex != -1 {
+		t.Fatalf("expected dividers to carry no repo, got %#v", rows)
+	}
+}
+
+func TestRenderedRowsAlignToFullTableWidth(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo-a"), testRepo("repo-b")})
+	model.updateTableWithSize(80, 10)
+
+	for _, entry := range model.visibleRows() {
+		if got := runewidth.StringWidth(model.renderRow(entry)); got != model.lineWidth() {
+			t.Fatalf("expected rendered row width %d, got %d (%q)", model.lineWidth(), got, model.renderRow(entry))
+		}
+	}
+}
+
+func TestTableRowsShowChangeCountsInSummary(t *testing.T) {
+	model := newTestModel([]discover.Repo{testRepo("repo")})
+	model.results[0] = ui.RepoResult{
+		Repo: testRepo("repo"),
+		Status: status.Parse(strings.Join([]string{
+			"## main",
+			" M changed.go",
+			"?? new.go",
+		}, "\n")),
+	}
+
+	rows := model.tableRows()
+
+	if !strings.Contains(rows[0].status, "main • 1 modified • 1 untracked") {
+		t.Fatalf("expected change counts in repo summary, got %#v", rows[0])
+	}
+}
+
+func TestRepoColumnCapsWidthOnWideTerminals(t *testing.T) {
+	results := []ui.RepoResult{{Repo: testRepo("demo-07-a-very-long-service-name-that-truncates")}}
+	_, repoWidth, _ := columnWidths(240, results)
+	if repoWidth > maxRepoWidthCap {
+		t.Fatalf("expected repo column capped at %d, got %d", maxRepoWidthCap, repoWidth)
 	}
 }
 
@@ -411,17 +593,12 @@ func TestTableColumnsHaveSpacingAndFitWidth(t *testing.T) {
 	model := newTestModel([]discover.Repo{testRepo("repo")})
 	model.updateTableWithSize(40, 10)
 
-	columns := model.repos.Columns()
-	if len(columns) != 3 {
-		t.Fatalf("expected three columns, got %#v", columns)
+	widths := model.colWidths
+	if widths[0]+widths[1]+widths[2]+columnGap*2 > model.tableWidth {
+		t.Fatalf("expected columns plus spacing to fit table width, got %#v and width %d", widths, model.tableWidth)
 	}
-	if columns[0].Width+columns[1].Width+columnGap*len(columns) > model.repos.Width() {
-		t.Fatalf("expected columns plus spacing to fit table width, got columns %#v and width %d", columns, model.repos.Width())
-	}
-
-	cell := lipgloss.NewStyle().Width(columns[1].Width).MaxWidth(columns[1].Width).Inline(true).Render("repo")
-	if got := tableStyles().Cell.Render(cell); !strings.HasSuffix(got, strings.Repeat(" ", columnGap)) {
-		t.Fatalf("expected repo cell to end with column spacing, got %q", got)
+	if model.lineWidth() > model.tableWidth {
+		t.Fatalf("expected rendered lines within table width, got %d over %d", model.lineWidth(), model.tableWidth)
 	}
 }
 

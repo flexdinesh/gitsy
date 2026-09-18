@@ -50,6 +50,31 @@ func TestBuildRowsShowsCleanRepoOnce(t *testing.T) {
 	}
 }
 
+func TestBuildRowsAppendsChangeCounts(t *testing.T) {
+	repo := discover.Repo{
+		Path:        "/tmp/repo",
+		RealPath:    "/tmp/repo",
+		DisplayName: "repo",
+		Source:      discover.SourceScan,
+	}
+	rows := BuildRows([]RepoResult{{
+		Repo: repo,
+		Status: status.Parse(strings.Join([]string{
+			"## main",
+			" M changed.go",
+			" M other.go",
+			"?? new.go",
+		}, "\n")),
+	}})
+
+	if len(rows) == 0 || rows[0].Text != "main • 2 modified • 1 untracked" {
+		t.Fatalf("expected summary with change counts, got %#v", rows)
+	}
+	if !rows[1].Dim || !strings.HasPrefix(rows[1].Text, "  ") {
+		t.Fatalf("expected dimmed indented detail row, got %#v", rows[1])
+	}
+}
+
 func TestBuildRowsShowsLoadingRepo(t *testing.T) {
 	repo := discover.Repo{
 		Path:        "/tmp/repo",
@@ -65,7 +90,7 @@ func TestBuildRowsShowsLoadingRepo(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected one loading row, got %d", len(rows))
 	}
-	if rows[0].Repo != "repo" || rows[0].Text != "⏳ fetching status…" {
+	if rows[0].Repo != "repo" || rows[0].Text != "fetching status…" {
 		t.Fatalf("expected loading row, got %#v", rows[0])
 	}
 }
@@ -121,7 +146,7 @@ func TestBuildRowsUsesGitStatusLabelsAndTones(t *testing.T) {
 
 	got := map[string]string{}
 	for _, row := range rows {
-		got[row.Text] = row.Tone
+		got[strings.TrimSpace(row.Text)] = row.Tone
 	}
 
 	if got["+ added added.go"] != "green" {

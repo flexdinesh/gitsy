@@ -23,3 +23,15 @@ automation.
 ```bash
 git commit -m "docs: update readme [skip ci]"
 ```
+
+## Trying the TUI locally
+
+```bash
+# Regenerate the demo workspace (26 repos, lands in /tmp/gitsy-demo).
+./scripts/setup-demo.sh
+
+# Run the CLI against it.
+go run ./cmd/gitsy --dir /tmp/gitsy-demo
+```
+
+Re-run the script anytime to reset fixture state (e.g. after `--sync`).

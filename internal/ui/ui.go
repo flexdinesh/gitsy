@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/flexdinesh/gitsy/internal/discover"
@@ -45,8 +46,8 @@ var categoryStyles = map[status.Category]categoryStyle{
 	status.Staged:    {icon: "◆", label: "staged", tone: "green"},
 	status.Untracked: {icon: "+", label: "untracked", tone: "red"},
 	status.Deleted:   {icon: "-", label: "removed", tone: "red"},
-	status.Renamed:   {icon: "➜", label: "renamed", tone: "magenta"},
-	status.Conflict:  {icon: "‼", label: "conflict", tone: "red", bold: true},
+	status.Renamed:   {icon: "→", label: "renamed", tone: "magenta"},
+	status.Conflict:  {icon: "!", label: "conflict", tone: "red", bold: true},
 	status.Other:     {icon: "•", label: "changed", tone: "white"},
 }
 
@@ -108,9 +109,9 @@ func BuildRows(results []RepoResult) []Row {
 
 func RowsForRepo(result RepoResult) []Row {
 	if result.Loading {
-		text := "⏳ fetching status…"
+		text := "fetching status…"
 		if result.LoadingText != "" {
-			text = fmt.Sprintf("%s fetching status...", result.LoadingText)
+			text = fmt.Sprintf("%s fetching status…", result.LoadingText)
 		}
 		return []Row{{
 			Kind: "data",
@@ -123,6 +124,9 @@ func RowsForRepo(result RepoResult) []Row {
 
 	rows := []Row{}
 	summary := FormatBranchSummary(result.Status)
+	if counts := formatChangeCounts(result.Status.Items); counts != "" {
+		summary.Text += " • " + counts
+	}
 	if result.Stale {
 		summary.Text += " ⚠ stale"
 		summary.Tone = "yellow"
@@ -213,10 +217,37 @@ func formatItemRow(item status.Item) Row {
 	itemStyle := itemCategoryStyle(item)
 	return Row{
 		Kind: "data",
-		Text: fmt.Sprintf("%s %s %s", itemStyle.icon, itemStyle.label, formatItemPath(item)),
+		Text: fmt.Sprintf("  %s %s %s", itemStyle.icon, itemStyle.label, formatItemPath(item)),
 		Tone: itemStyle.tone,
 		Bold: itemStyle.bold,
+		Dim:  !itemStyle.bold,
 	}
+}
+
+// countLabelOrder keeps change counts deterministic.
+var countLabelOrder = []string{"modified", "staged", "added", "untracked", "removed", "renamed", "conflict", "changed"}
+
+func formatChangeCounts(items []status.Item) string {
+	counts := map[string]int{}
+	for _, item := range items {
+		counts[itemCategoryStyle(item).label]++
+	}
+	parts := []string{}
+	for _, label := range countLabelOrder {
+		if counts[label] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[label], label))
+			delete(counts, label)
+		}
+	}
+	rest := []string{}
+	for label := range counts {
+		rest = append(rest, label)
+	}
+	sort.Strings(rest)
+	for _, label := range rest {
+		parts = append(parts, fmt.Sprintf("%d %s", counts[label], label))
+	}
+	return strings.Join(parts, " • ")
 }
 
 func itemCategoryStyle(item status.Item) categoryStyle {
