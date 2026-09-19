@@ -313,20 +313,72 @@ func TestTableRowsFillPanelWidth(t *testing.T) {
 	}
 }
 
-func TestLayoutUsesFullWidthTable(t *testing.T) {
+func TestLayoutSplitsTableAndInfoPanels(t *testing.T) {
 	model := newTestModel(testRepos("repo-a", "repo-b"))
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	got := updated.(Model)
 
-	if got.tableWidth != 100-2-padX*2 {
-		t.Fatalf("expected full-width table content %d, got %d", 100-2-padX*2, got.tableWidth)
+	if !got.infoShown {
+		t.Fatal("expected info panel at width 100")
 	}
-	if view := got.View(); strings.Contains(view, "NAVIGATE") {
-		t.Fatalf("expected no info panel, got static tips in view:\n%s", view)
+	if got.tableOuter+panelGap+got.infoOuter != 100 {
+		t.Fatalf("expected panels to fill width, got table %d + info %d", got.tableOuter, got.infoOuter)
 	}
-	if got := lipgloss.Width(got.View()); got != 100 {
-		t.Fatalf("expected view to fit terminal width, got %d", got)
+	if got.tableOuter >= 100 {
+		t.Fatalf("expected compact table narrower than terminal, got %d", got.tableOuter)
 	}
+	if got.tableWidth != got.tableOuter-2-padX*2 {
+		t.Fatalf("expected table content within panel, got %d in %d", got.tableWidth, got.tableOuter)
+	}
+}
+
+func TestLayoutSplitFollowsThirdsWithMinimums(t *testing.T) {
+	tableOuter, infoOuter, shown := layoutWidths(120)
+	if !shown || infoOuter != 40 || tableOuter != 79 {
+		t.Fatalf("expected 79/40 split at 120, got %d/%d shown=%v", tableOuter, infoOuter, shown)
+	}
+	if _, infoOuter, _ := layoutWidths(300); infoOuter != infoMaxOuter {
+		t.Fatalf("expected capped info %d at 300, got %d", infoMaxOuter, infoOuter)
+	}
+	if _, _, shown := layoutWidths(tableMinOuter + panelGap + infoMinOuter); !shown {
+		t.Fatal("expected split exactly at the combined minimums")
+	}
+	if _, _, shown := layoutWidths(tableMinOuter + panelGap + infoMinOuter - 1); shown {
+		t.Fatal("expected full-width table one below the combined minimums")
+	}
+}
+
+func TestLayoutDropsInfoPanelOnNarrowTerminals(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	got := updated.(Model)
+
+	if got.infoShown {
+		t.Fatal("expected no info panel at width 60")
+	}
+	if got.tableOuter != 60 {
+		t.Fatalf("expected table to take full width, got %d", got.tableOuter)
+	}
+}
+
+func TestInfoPanelShowsStaticTips(t *testing.T) {
+	model := newTestModel(testRepos("repo-a", "repo-b", "repo-c", "repo-d", "repo-e", "repo-f", "repo-g", "repo-h"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	got := updated.(Model)
+
+	view := got.View()
+	for _, tip := range []string{"INFO", "NAVIGATE", "SELECT", "QUIT", "q · quit"} {
+		if !strings.Contains(view, tip) {
+			t.Fatalf("expected info tip %q in view:\n%s", tip, view)
+		}
+	}
+	before := got.View()
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
+	after := updated.(Model).View()
+	if !strings.Contains(after, "NAVIGATE") {
+		t.Fatalf("expected info panel to persist while table scrolls:\n%s", after)
+	}
+	_ = before
 }
 
 func TestViewShowsFooterAlwaysAndPositionOnNavigate(t *testing.T) {
@@ -334,6 +386,12 @@ func TestViewShowsFooterAlwaysAndPositionOnNavigate(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 	if view := updated.(Model).View(); !strings.Contains(view, "↑/↓ j/k") {
 		t.Fatalf("expected footer hint always, got %q", view)
+	}
+
+	model = newTestModel([]discover.Repo{testRepo("repo")})
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	if view := updated.(Model).View(); !strings.Contains(view, "q quit") {
+		t.Fatalf("expected slim footer with info panel visible, got %q", view)
 	}
 
 	model = newTestModel(testRepos("repo-a", "repo-b", "repo-c", "repo-d"))

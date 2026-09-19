@@ -55,6 +55,9 @@ type Model struct {
 	inspect  inspector
 
 	tableWidth int
+	tableOuter int
+	infoOuter  int
+	infoShown  bool
 	colWidths  [3]int
 }
 
@@ -166,8 +169,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return model, nil
 }
 
-// View is pure: it recomputes layout from current state into locals and
-// never mutates the model, so calling View has no effect on scrolling.
+// View stacks three zones: borderless header bar, a panels row with the
+// compact table left and a static info panel right, borderless footer.
+// Pure: recomputes layout into locals and never mutates the model.
+// Only the table viewport scrolls; the info panel never moves.
 func (model Model) View() string {
 	width := model.width
 	height := model.height
@@ -179,16 +184,27 @@ func (model Model) View() string {
 	}
 	width = max(width, minWidth)
 
-	tableWidth := max(1, width-2-padX*2)
+	tableOuter, infoOuter, infoShown := layoutWidths(width)
+	tableWidth := max(1, tableOuter-2-padX*2)
 	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.results)
 	cols := [3]int{numberWidth, repoWidth, statusWidth}
 	entries := buildEntries(model.spinnerResults(), model.selected)
 	capacity := tableViewportHeight(height)
 	offset := clamp(model.offset, 0, max(0, len(entries)-capacity))
 
+	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected))
+	middle := tableBox
+	if infoShown {
+		infoBox := renderInfo(infoOuter, lipgloss.Height(tableBox))
+		gap := lipgloss.NewStyle().
+			Width(panelGap).
+			Height(lipgloss.Height(tableBox)).
+			Render("")
+		middle = lipgloss.JoinHorizontal(lipgloss.Top, tableBox, gap, infoBox)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left,
 		model.renderHeader(width),
-		renderTableBox(width, entries, cols, offset, capacity, model.selected),
+		middle,
 		model.renderFooter(width),
 	)
 }
@@ -310,7 +326,8 @@ func (model *Model) refresh() {
 }
 
 func (model *Model) updateTableWithSize(width int, height int) {
-	tableWidth := max(1, width-2-padX*2)
+	model.tableOuter, model.infoOuter, model.infoShown = layoutWidths(width)
+	tableWidth := max(1, model.tableOuter-2-padX*2)
 	model.tableWidth = tableWidth
 	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.results)
 	model.colWidths = [3]int{numberWidth, repoWidth, statusWidth}
@@ -501,9 +518,54 @@ func (model Model) headerRight() string {
 	return strings.TrimPrefix(fmtStatus(mode, pending), " • ")
 }
 
-// renderTableBox wraps the table body in the full-width bordered panel.
-func renderTableBox(width int, entries []rowEntry, cols [3]int, offset int, capacity int, selected int) string {
-	return tableStyle(width).Render(renderTableBody(entries, cols, offset, capacity, selected))
+// renderInfo draws the static right panel. boxHeight matches the table
+// panel so both bottoms align; tips are padded to fill, never scrolled.
+func renderInfo(infoOuter int, boxHeight int) string {
+	content := max(1, infoOuter-2-padX*2)
+	lines := infoLines(content)
+	want := max(1, boxHeight-2)
+	for len(lines) < want {
+		lines = append(lines, "")
+	}
+	lines = lines[:min(len(lines), want)]
+	return infoStyle(infoOuter).Render(strings.Join(lines, "\n"))
+}
+
+// infoLines builds the static tips panel: plain text, truncation-safe.
+func infoLines(width int) []string {
+	lines := []string{
+		columnHeaderStyle().Render(truncateCell("INFO", width)),
+		dividerStyle().Render(strings.Repeat("─", max(1, width))),
+	}
+	sections := []struct {
+		label   string
+		entries []string
+	}{
+		{"NAVIGATE", []string{"↑/↓ j/k · move", "PgUp/PgDn · page", "g / G · ends", "wheel · scroll"}},
+		{"SELECT", []string{"› · current repo"}},
+		{"QUIT", []string{"q · quit"}},
+	}
+	for index, section := range sections {
+		if index > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, infoSectionStyle().Render(truncateCell(section.label, width)))
+		for _, entry := range section.entries {
+			lines = append(lines, truncateCell(entry, width))
+		}
+	}
+	return lines
+}
+
+// layoutWidths splits the terminal into table and info panels: roughly
+// 2/3 table and 1/3 info. Either panel below its minimum collapses to a
+// full-width table with the footer carrying the key hints instead.
+func layoutWidths(termWidth int) (tableOuter int, infoOuter int, infoShown bool) {
+	infoOuter = clamp(termWidth/3, infoMinOuter, infoMaxOuter)
+	if termWidth-infoOuter-panelGap < tableMinOuter {
+		return termWidth, 0, false
+	}
+	return termWidth - infoOuter - panelGap, infoOuter, true
 }
 
 // renderTableBody draws a real table: column header, full-width rule,
@@ -580,7 +642,7 @@ func renderRow(entry rowEntry, cols [3]int, selected int) string {
 }
 
 func (model Model) renderTable() string {
-	return tableStyle(max(model.width, minWidth)).Render(renderTableBody(model.rows, model.colWidths, model.offset, model.capacity, model.selected))
+	return tableStyle(model.tableOuter).Render(renderTableBody(model.rows, model.colWidths, model.offset, model.capacity, model.selected))
 }
 
 func (model Model) renderRow(entry rowEntry) string {
@@ -613,11 +675,14 @@ func fmtStatus(mode string, pending int) string {
 // renderFooter is always shown: position left, key hints right.
 // Both parts collapse gracefully at narrow widths.
 func (model Model) renderFooter(width int) string {
-	return footerStyle(width).Render(model.footerPlain(max(1, width-spaceSM*2)))
+	_, _, infoShown := layoutWidths(max(width, minWidth))
+	return footerStyle(width).Render(model.footerPlain(max(1, width-spaceSM*2), infoShown))
 }
 
-// footerPlain lays out the footer text to exactly content width.
-func (model Model) footerPlain(content int) string {
+// footerPlain lays out the footer text to exactly content width. When
+// the info panel is visible it already carries the key hints, so the
+// footer keeps just position and quit.
+func (model Model) footerPlain(content int, infoShown bool) string {
 	position := ""
 	if len(model.results) > 0 {
 		position = strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.results))
@@ -626,6 +691,9 @@ func (model Model) footerPlain(content int) string {
 		"↑/↓ j/k • PgUp/PgDn • wheel • q quit",
 		"↑/↓ j/k • pg • wheel • q",
 		"↑↓ • wheel • q",
+	}
+	if infoShown {
+		hints = []string{"q quit"}
 	}
 	hint := hints[len(hints)-1]
 	for _, option := range hints {

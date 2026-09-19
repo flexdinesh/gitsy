@@ -14,6 +14,14 @@ const (
 	// Layout chrome.
 	padX      = 1
 	columnGap = 2
+	panelGap  = 1
+
+	// Responsive split: side by side the info panel takes ~1/3 and the
+	// table ~2/3. Below the combined minimums the info panel drops
+	// and the table takes full width.
+	tableMinOuter = 56
+	infoMinOuter  = 30
+	infoMaxOuter  = 48
 
 	// Sizing.
 	maxRepoWidthCap = 28
@@ -27,6 +35,7 @@ const (
 var (
 	borderSubtle = lipgloss.AdaptiveColor{Light: "#D4D4D8", Dark: "#3F3F46"}
 	textHi       = lipgloss.AdaptiveColor{Light: "#18181B", Dark: "#FAFAFA"}
+	textMed      = lipgloss.AdaptiveColor{Light: "#52525B", Dark: "#A1A1AA"}
 	textLo       = lipgloss.AdaptiveColor{Light: "#71717A", Dark: "#71717A"}
 	brand        = lipgloss.AdaptiveColor{Light: "#0E7490", Dark: "#22D3EE"}
 	success      = lipgloss.AdaptiveColor{Light: "#15803D", Dark: "#4ADE80"}
@@ -65,13 +74,31 @@ func footerStyle(width int) lipgloss.Style {
 		Padding(0, spaceSM)
 }
 
-// tableStyle is the full-width panel frame.
+// tableStyle is the left panel frame. The info panel reuses the same
+// bordered look so both panels read as one row.
 func tableStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(borderSubtle).
 		Width(max(1, width-2)).
 		Padding(0, padX)
+}
+
+// infoStyle is the right panel frame. Same border treatment as the
+// table so the two panels sit as one row.
+func infoStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(borderSubtle).
+		Width(max(1, width-2)).
+		Padding(0, padX)
+}
+
+// infoSectionStyle renders the info panel section labels.
+func infoSectionStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(textMed).
+		Bold(true)
 }
 
 // columnHeaderStyle renders the table column titles.
