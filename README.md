@@ -2,6 +2,8 @@
 
 gitsy is a small Go CLI that scans a directory for Git repositories and linked worktrees, fetches fresh upstream metadata by default, and shows a compact status table so you can see what needs attention.
 
+<video src="assets/gitsy-demo.mp4" controls></video>
+
 ## Install
 
 ```bash
