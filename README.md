@@ -5,10 +5,10 @@ gitsy is a small Go CLI that scans a directory for Git repositories and linked w
 ## Install
 
 ```bash
-# Homebrew.
 brew install flexdinesh/tap/gitsy
+```
 
-# Go.
+```bash
 go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 ```
 
