@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -113,6 +114,8 @@ func FetchAllContext(ctx context.Context, repoPath string, timeout time.Duration
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "fetch", "--all")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never")
+	cmd.WaitDelay = time.Second
 	result := runCommand(ctx, cmd)
 	if ctx.Err() == context.DeadlineExceeded {
 		result.Stderr = "git fetch timed out"
