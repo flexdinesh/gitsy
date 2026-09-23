@@ -4,8 +4,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Design tokens. Single source for spacing, sizing, color, type, shape.
-// Keep values boring and stable; tests and users rely on exact layout.
+// Terminal-cell spacing and adaptive palette.
 
 const (
 	// Spacing scale.
@@ -14,14 +13,12 @@ const (
 	// Layout chrome.
 	padX      = 1
 	columnGap = 2
-	panelGap  = 1
+	panelGap  = 2
 
-	// Responsive split: side by side the info panel takes ~1/3 and the
-	// table ~2/3. Below the combined minimums the info panel drops
-	// and the table takes full width.
-	tableMinOuter = 56
+	// Reserve at least 72 columns for the ledger before adding context.
+	tableMinOuter = 72
 	infoMinOuter  = 30
-	infoMaxOuter  = 48
+	infoMaxOuter  = 38
 
 	// Sizing.
 	maxRepoWidthCap = 28
@@ -33,23 +30,21 @@ const (
 
 // Palette uses adaptive colors so the UI works on dark and light terminals.
 var (
-	borderSubtle = lipgloss.AdaptiveColor{Light: "#D4D4D8", Dark: "#3F3F46"}
-	textHi       = lipgloss.AdaptiveColor{Light: "#18181B", Dark: "#FAFAFA"}
-	textMed      = lipgloss.AdaptiveColor{Light: "#52525B", Dark: "#A1A1AA"}
-	textLo       = lipgloss.AdaptiveColor{Light: "#71717A", Dark: "#71717A"}
-	brand        = lipgloss.AdaptiveColor{Light: "#0E7490", Dark: "#22D3EE"}
-	success      = lipgloss.AdaptiveColor{Light: "#15803D", Dark: "#4ADE80"}
-	warning      = lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#FBBF24"}
-	danger       = lipgloss.AdaptiveColor{Light: "#B91C1C", Dark: "#F87171"}
-	info         = lipgloss.AdaptiveColor{Light: "#1D4ED8", Dark: "#60A5FA"}
-	violet       = lipgloss.AdaptiveColor{Light: "#7E22CE", Dark: "#C084FC"}
+	borderSubtle = lipgloss.AdaptiveColor{Light: "#C4CDD6", Dark: "#354555"}
+	textHi       = lipgloss.AdaptiveColor{Light: "#243446", Dark: "#D8E2ED"}
+	textMed      = lipgloss.AdaptiveColor{Light: "#465A6E", Dark: "#ADBDCD"}
+	textLo       = lipgloss.AdaptiveColor{Light: "#566B7F", Dark: "#8CA2B8"}
+	brand        = lipgloss.AdaptiveColor{Light: "#176C61", Dark: "#63C5B5"}
+	success      = lipgloss.AdaptiveColor{Light: "#306B49", Dark: "#9AC79D"}
+	warning      = lipgloss.AdaptiveColor{Light: "#895B10", Dark: "#E5B567"}
+	danger       = lipgloss.AdaptiveColor{Light: "#AC3439", Dark: "#EE9298"}
+	info         = lipgloss.AdaptiveColor{Light: "#325F91", Dark: "#8BB4DF"}
+	violet       = lipgloss.AdaptiveColor{Light: "#785297", Dark: "#BDA6DB"}
+	selection    = lipgloss.AdaptiveColor{Light: "#E2EFEB", Dark: "#203B3B"}
 )
 
 const iconSelected = "›"
 
-// headerBarStyle is the top chrome bar. No border or fill: it sits above
-// the table with standard chrome inset so its text aligns with the
-// table content (border 1 + padding 1 on each side).
 func headerBarStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Width(max(1, width)).
@@ -74,23 +69,20 @@ func footerStyle(width int) lipgloss.Style {
 		Padding(0, spaceSM)
 }
 
-// tableStyle is the left panel frame. The info panel reuses the same
-// bordered look so both panels read as one row.
+// Open gutters align the ledger with the header and footer.
 func tableStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(borderSubtle).
-		Width(max(1, width-2)).
-		Padding(0, padX)
+		Width(max(1, width)).
+		Padding(0, spaceSM)
 }
 
-// infoStyle is the right panel frame. Same border treatment as the
-// table so the two panels sit as one row.
+// One rule separates selected-repository context from the ledger.
 func infoStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderLeft(true).
 		BorderForeground(borderSubtle).
-		Width(max(1, width-2)).
+		Width(max(1, width-1)).
 		Padding(0, padX)
 }
 
@@ -123,7 +115,10 @@ func selectedMarkerStyle() lipgloss.Style {
 }
 
 func toneStyle(tone string, bold bool, dim bool) lipgloss.Style {
-	style := lipgloss.NewStyle().Bold(bold).Faint(dim)
+	style := lipgloss.NewStyle().Bold(bold)
+	if dim {
+		return style.Foreground(textLo)
+	}
 	switch tone {
 	case "red":
 		return style.Foreground(danger)
@@ -146,8 +141,7 @@ func toneStyle(tone string, bold bool, dim bool) lipgloss.Style {
 	}
 }
 
-// dividerStyle renders the repo separator. Plain border color, no faint:
-// faint renders inconsistently bright across terminals.
+// Faint renders inconsistently across terminals; use explicit colors.
 func dividerStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(borderSubtle)

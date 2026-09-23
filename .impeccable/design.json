@@ -1,0 +1,473 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-23T12:21:48Z",
+  "title": "Design System: gitsy",
+  "extensions": {
+    "colorMeta": {
+      "border-subtle-light": {
+        "role": "neutral",
+        "displayName": "Slate rule (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0160 248.02)",
+          "oklch(26.43% 0.0160 248.02)",
+          "oklch(37.86% 0.0160 248.02)",
+          "oklch(49.29% 0.0160 248.02)",
+          "oklch(60.71% 0.0160 248.02)",
+          "oklch(72.14% 0.0160 248.02)",
+          "oklch(83.57% 0.0160 248.02)",
+          "oklch(95.00% 0.0160 248.02)"
+        ]
+      },
+      "border-subtle-dark": {
+        "role": "neutral",
+        "displayName": "Slate rule (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0343 248.74)",
+          "oklch(26.43% 0.0343 248.74)",
+          "oklch(37.86% 0.0343 248.74)",
+          "oklch(49.29% 0.0343 248.74)",
+          "oklch(60.71% 0.0343 248.74)",
+          "oklch(72.14% 0.0343 248.74)",
+          "oklch(83.57% 0.0343 248.74)",
+          "oklch(95.00% 0.0343 248.74)"
+        ]
+      },
+      "text-hi-light": {
+        "role": "neutral",
+        "displayName": "Primary slate (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0387 251.94)",
+          "oklch(26.43% 0.0387 251.94)",
+          "oklch(37.86% 0.0387 251.94)",
+          "oklch(49.29% 0.0387 251.94)",
+          "oklch(60.71% 0.0387 251.94)",
+          "oklch(72.14% 0.0387 251.94)",
+          "oklch(83.57% 0.0387 251.94)",
+          "oklch(95.00% 0.0387 251.94)"
+        ]
+      },
+      "text-hi-dark": {
+        "role": "neutral",
+        "displayName": "Primary slate (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0185 250.60)",
+          "oklch(26.43% 0.0185 250.60)",
+          "oklch(37.86% 0.0185 250.60)",
+          "oklch(49.29% 0.0185 250.60)",
+          "oklch(60.71% 0.0185 250.60)",
+          "oklch(72.14% 0.0185 250.60)",
+          "oklch(83.57% 0.0185 250.60)",
+          "oklch(95.00% 0.0185 250.60)"
+        ]
+      },
+      "text-med-light": {
+        "role": "neutral",
+        "displayName": "Section slate (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0410 248.74)",
+          "oklch(26.43% 0.0410 248.74)",
+          "oklch(37.86% 0.0410 248.74)",
+          "oklch(49.29% 0.0410 248.74)",
+          "oklch(60.71% 0.0410 248.74)",
+          "oklch(72.14% 0.0410 248.74)",
+          "oklch(83.57% 0.0410 248.74)",
+          "oklch(95.00% 0.0410 248.74)"
+        ]
+      },
+      "text-med-dark": {
+        "role": "neutral",
+        "displayName": "Section slate (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0288 248.19)",
+          "oklch(26.43% 0.0288 248.19)",
+          "oklch(37.86% 0.0288 248.19)",
+          "oklch(49.29% 0.0288 248.19)",
+          "oklch(60.71% 0.0288 248.19)",
+          "oklch(72.14% 0.0288 248.19)",
+          "oklch(83.57% 0.0288 248.19)",
+          "oklch(95.00% 0.0288 248.19)"
+        ]
+      },
+      "text-lo-light": {
+        "role": "neutral",
+        "displayName": "Quiet slate (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0405 247.34)",
+          "oklch(26.43% 0.0405 247.34)",
+          "oklch(37.86% 0.0405 247.34)",
+          "oklch(49.29% 0.0405 247.34)",
+          "oklch(60.71% 0.0405 247.34)",
+          "oklch(72.14% 0.0405 247.34)",
+          "oklch(83.57% 0.0405 247.34)",
+          "oklch(95.00% 0.0405 247.34)"
+        ]
+      },
+      "text-lo-dark": {
+        "role": "neutral",
+        "displayName": "Quiet slate (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0407 248.41)",
+          "oklch(26.43% 0.0407 248.41)",
+          "oklch(37.86% 0.0407 248.41)",
+          "oklch(49.29% 0.0407 248.41)",
+          "oklch(60.71% 0.0407 248.41)",
+          "oklch(72.14% 0.0407 248.41)",
+          "oklch(83.57% 0.0407 248.41)",
+          "oklch(95.00% 0.0407 248.41)"
+        ]
+      },
+      "brand-light": {
+        "role": "primary",
+        "displayName": "Sea glass (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0790 182.05)",
+          "oklch(26.43% 0.0790 182.05)",
+          "oklch(37.86% 0.0790 182.05)",
+          "oklch(49.29% 0.0790 182.05)",
+          "oklch(60.71% 0.0790 182.05)",
+          "oklch(72.14% 0.0790 182.05)",
+          "oklch(83.57% 0.0790 182.05)",
+          "oklch(95.00% 0.0790 182.05)"
+        ]
+      },
+      "brand-dark": {
+        "role": "primary",
+        "displayName": "Sea glass (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0959 181.65)",
+          "oklch(26.43% 0.0959 181.65)",
+          "oklch(37.86% 0.0959 181.65)",
+          "oklch(49.29% 0.0959 181.65)",
+          "oklch(60.71% 0.0959 181.65)",
+          "oklch(72.14% 0.0959 181.65)",
+          "oklch(83.57% 0.0959 181.65)",
+          "oklch(95.00% 0.0959 181.65)"
+        ]
+      },
+      "success-light": {
+        "role": "secondary",
+        "displayName": "Sage (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0833 156.03)",
+          "oklch(26.43% 0.0833 156.03)",
+          "oklch(37.86% 0.0833 156.03)",
+          "oklch(49.29% 0.0833 156.03)",
+          "oklch(60.71% 0.0833 156.03)",
+          "oklch(72.14% 0.0833 156.03)",
+          "oklch(83.57% 0.0833 156.03)",
+          "oklch(95.00% 0.0833 156.03)"
+        ]
+      },
+      "success-dark": {
+        "role": "secondary",
+        "displayName": "Sage (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0757 146.54)",
+          "oklch(26.43% 0.0757 146.54)",
+          "oklch(37.86% 0.0757 146.54)",
+          "oklch(49.29% 0.0757 146.54)",
+          "oklch(60.71% 0.0757 146.54)",
+          "oklch(72.14% 0.0757 146.54)",
+          "oklch(83.57% 0.0757 146.54)",
+          "oklch(95.00% 0.0757 146.54)"
+        ]
+      },
+      "warning-light": {
+        "role": "secondary",
+        "displayName": "Amber (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.1026 72.82)",
+          "oklch(26.43% 0.1026 72.82)",
+          "oklch(37.86% 0.1026 72.82)",
+          "oklch(49.29% 0.1026 72.82)",
+          "oklch(60.71% 0.1026 72.82)",
+          "oklch(72.14% 0.1026 72.82)",
+          "oklch(83.57% 0.1026 72.82)",
+          "oklch(95.00% 0.1026 72.82)"
+        ]
+      },
+      "warning-dark": {
+        "role": "secondary",
+        "displayName": "Amber (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.1111 78.25)",
+          "oklch(26.43% 0.1111 78.25)",
+          "oklch(37.86% 0.1111 78.25)",
+          "oklch(49.29% 0.1111 78.25)",
+          "oklch(60.71% 0.1111 78.25)",
+          "oklch(72.14% 0.1111 78.25)",
+          "oklch(83.57% 0.1111 78.25)",
+          "oklch(95.00% 0.1111 78.25)"
+        ]
+      },
+      "danger-light": {
+        "role": "secondary",
+        "displayName": "Coral (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.1558 22.47)",
+          "oklch(26.43% 0.1558 22.47)",
+          "oklch(37.86% 0.1558 22.47)",
+          "oklch(49.29% 0.1558 22.47)",
+          "oklch(60.71% 0.1558 22.47)",
+          "oklch(72.14% 0.1558 22.47)",
+          "oklch(83.57% 0.1558 22.47)",
+          "oklch(95.00% 0.1558 22.47)"
+        ]
+      },
+      "danger-dark": {
+        "role": "secondary",
+        "displayName": "Coral (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.1115 15.85)",
+          "oklch(26.43% 0.1115 15.85)",
+          "oklch(37.86% 0.1115 15.85)",
+          "oklch(49.29% 0.1115 15.85)",
+          "oklch(60.71% 0.1115 15.85)",
+          "oklch(72.14% 0.1115 15.85)",
+          "oklch(83.57% 0.1115 15.85)",
+          "oklch(95.00% 0.1115 15.85)"
+        ]
+      },
+      "info-light": {
+        "role": "secondary",
+        "displayName": "Steel blue (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0953 252.59)",
+          "oklch(26.43% 0.0953 252.59)",
+          "oklch(37.86% 0.0953 252.59)",
+          "oklch(49.29% 0.0953 252.59)",
+          "oklch(60.71% 0.0953 252.59)",
+          "oklch(72.14% 0.0953 252.59)",
+          "oklch(83.57% 0.0953 252.59)",
+          "oklch(95.00% 0.0953 252.59)"
+        ]
+      },
+      "info-dark": {
+        "role": "secondary",
+        "displayName": "Steel blue (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0764 250.06)",
+          "oklch(26.43% 0.0764 250.06)",
+          "oklch(37.86% 0.0764 250.06)",
+          "oklch(49.29% 0.0764 250.06)",
+          "oklch(60.71% 0.0764 250.06)",
+          "oklch(72.14% 0.0764 250.06)",
+          "oklch(83.57% 0.0764 250.06)",
+          "oklch(95.00% 0.0764 250.06)"
+        ]
+      },
+      "violet-light": {
+        "role": "secondary",
+        "displayName": "Muted violet (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.1131 308.26)",
+          "oklch(26.43% 0.1131 308.26)",
+          "oklch(37.86% 0.1131 308.26)",
+          "oklch(49.29% 0.1131 308.26)",
+          "oklch(60.71% 0.1131 308.26)",
+          "oklch(72.14% 0.1131 308.26)",
+          "oklch(83.57% 0.1131 308.26)",
+          "oklch(95.00% 0.1131 308.26)"
+        ]
+      },
+      "violet-dark": {
+        "role": "secondary",
+        "displayName": "Muted violet (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0785 304.39)",
+          "oklch(26.43% 0.0785 304.39)",
+          "oklch(37.86% 0.0785 304.39)",
+          "oklch(49.29% 0.0785 304.39)",
+          "oklch(60.71% 0.0785 304.39)",
+          "oklch(72.14% 0.0785 304.39)",
+          "oklch(83.57% 0.0785 304.39)",
+          "oklch(95.00% 0.0785 304.39)"
+        ]
+      },
+      "selection-light": {
+        "role": "neutral",
+        "displayName": "Sea-glass wash (light)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0148 175.71)",
+          "oklch(26.43% 0.0148 175.71)",
+          "oklch(37.86% 0.0148 175.71)",
+          "oklch(49.29% 0.0148 175.71)",
+          "oklch(60.71% 0.0148 175.71)",
+          "oklch(72.14% 0.0148 175.71)",
+          "oklch(83.57% 0.0148 175.71)",
+          "oklch(95.00% 0.0148 175.71)"
+        ]
+      },
+      "selection-dark": {
+        "role": "neutral",
+        "displayName": "Sea-glass wash (dark)",
+        "tonalRamp": [
+          "oklch(15.00% 0.0330 195.67)",
+          "oklch(26.43% 0.0330 195.67)",
+          "oklch(37.86% 0.0330 195.67)",
+          "oklch(49.29% 0.0330 195.67)",
+          "oklch(60.71% 0.0330 195.67)",
+          "oklch(72.14% 0.0330 195.67)",
+          "oklch(83.57% 0.0330 195.67)",
+          "oklch(95.00% 0.0330 195.67)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "emphasis": {
+        "displayName": "Terminal emphasis",
+        "purpose": "Bold title, headings, context sections, and selected identity; terminal owns family and size."
+      },
+      "body": {
+        "displayName": "Terminal body",
+        "purpose": "Normal terminal text."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "loading-spinner",
+        "value": "Bubbles spinner.Dot",
+        "purpose": "Pending repository inspection; timing inherited from the installed Bubbles component."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "regular-min-width",
+        "value": "32 terminal columns"
+      },
+      {
+        "name": "regular-min-height",
+        "value": "7 terminal rows"
+      },
+      {
+        "name": "context-min-width",
+        "value": "104 terminal columns"
+      }
+    ],
+    "platform": "native Go TUI",
+    "previewNotes": "HTML snippets are inspection-only translations, not shipping web components. Preview monospace and CSS media queries approximate terminal font and adaptive theme choice. Tonal ramps are generated display aids, not application tokens; shipped color values live exclusively in DESIGN.md frontmatter.",
+    "adaptivePairs": [
+      {
+        "name": "border-subtle",
+        "light": "border-subtle-light",
+        "dark": "border-subtle-dark"
+      },
+      {
+        "name": "text-hi",
+        "light": "text-hi-light",
+        "dark": "text-hi-dark"
+      },
+      {
+        "name": "text-med",
+        "light": "text-med-light",
+        "dark": "text-med-dark"
+      },
+      {
+        "name": "text-lo",
+        "light": "text-lo-light",
+        "dark": "text-lo-dark"
+      },
+      {
+        "name": "brand",
+        "light": "brand-light",
+        "dark": "brand-dark"
+      },
+      {
+        "name": "success",
+        "light": "success-light",
+        "dark": "success-dark"
+      },
+      {
+        "name": "warning",
+        "light": "warning-light",
+        "dark": "warning-dark"
+      },
+      {
+        "name": "danger",
+        "light": "danger-light",
+        "dark": "danger-dark"
+      },
+      {
+        "name": "info",
+        "light": "info-light",
+        "dark": "info-dark"
+      },
+      {
+        "name": "violet",
+        "light": "violet-light",
+        "dark": "violet-dark"
+      },
+      {
+        "name": "selection",
+        "light": "selection-light",
+        "dark": "selection-dark"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Workspace header",
+      "kind": "custom",
+      "description": "Native title, operation mode, and exception summary; static HTML translation.",
+      "html": "<div class=\"ds-terminal\"><b class=\"ds-brand\">gitsy</b>                         <span class=\"ds-muted\">fetch · done</span>\n<span class=\"ds-muted\">12 repos</span> · <span class=\"ds-danger\">1 failed</span> · <span class=\"ds-warning\">3 changed · 2 behind</span></div>",
+      "css": ".ds-terminal { font-family: monospace; white-space: pre; color: #243446; } .ds-muted { color: #566B7F; } .ds-brand { color: #176C61; } .ds-warning { color: #895B10; } .ds-danger { color: #AC3439; } .ds-selected { background: #E2EFEB; font-weight: 700; } .ds-rule { color: #C4CDD6; } @media (prefers-color-scheme: dark) { .ds-terminal { color: #D8E2ED; } .ds-muted { color: #8CA2B8; } .ds-brand { color: #63C5B5; } .ds-warning { color: #E5B567; } .ds-danger { color: #EE9298; } .ds-selected { background: #203B3B; } .ds-rule { color: #354555; } }"
+    },
+    {
+      "name": "Selected repository",
+      "kind": "custom",
+      "refersTo": "selected-row-light",
+      "description": "Keyboard selection combines a marker, bold identity, and adaptive wash; no native hover state.",
+      "html": "<div class=\"ds-terminal\"><span class=\"ds-selected\"><span class=\"ds-brand\">›</span> 3  workspace-api  <span class=\"ds-warning\">main ↓2 • 1 modified</span></span></div>",
+      "css": ".ds-terminal { font-family: monospace; white-space: pre; color: #243446; } .ds-muted { color: #566B7F; } .ds-brand { color: #176C61; } .ds-warning { color: #895B10; } .ds-danger { color: #AC3439; } .ds-selected { background: #E2EFEB; font-weight: 700; } .ds-rule { color: #C4CDD6; } @media (prefers-color-scheme: dark) { .ds-terminal { color: #D8E2ED; } .ds-muted { color: #8CA2B8; } .ds-brand { color: #63C5B5; } .ds-warning { color: #E5B567; } .ds-danger { color: #EE9298; } .ds-selected { background: #203B3B; } .ds-rule { color: #354555; } }"
+    },
+    {
+      "name": "Repository states",
+      "kind": "custom",
+      "description": "Text preserves meaning alongside semantic color; quiet clean rows recede.",
+      "html": "<div class=\"ds-terminal\"><span class=\"ds-muted\">  1</span>  archive  <span class=\"ds-muted\">main ✓ clean</span>\n<span class=\"ds-muted\">  2</span>  service  <span class=\"ds-danger\">⚠ status failed</span>\n<span class=\"ds-muted\">  3</span>  website  <span class=\"ds-warning\">⚠ stale · main ↑1</span></div>",
+      "css": ".ds-terminal { font-family: monospace; white-space: pre; color: #243446; } .ds-muted { color: #566B7F; } .ds-brand { color: #176C61; } .ds-warning { color: #895B10; } .ds-danger { color: #AC3439; } .ds-selected { background: #E2EFEB; font-weight: 700; } .ds-rule { color: #C4CDD6; } @media (prefers-color-scheme: dark) { .ds-terminal { color: #D8E2ED; } .ds-muted { color: #8CA2B8; } .ds-brand { color: #63C5B5; } .ds-warning { color: #E5B567; } .ds-danger { color: #EE9298; } .ds-selected { background: #203B3B; } .ds-rule { color: #354555; } }"
+    },
+    {
+      "name": "Selected repository context",
+      "kind": "custom",
+      "description": "Single-rule context rail; this illustrative HTML does not impose a terminal font.",
+      "html": "<div class=\"ds-terminal ds-context\"><b class=\"ds-muted\">Selected repository</b>\n<span class=\"ds-rule\">──────────────────────────</span>\n\n<b>workspace-api</b>\n<span class=\"ds-muted\">/workspace/workspace-api</span>\n\n<b>Branch</b>\nmain\n<span class=\"ds-muted\">origin/main</span>\n\n<b>Status</b>\n<span class=\"ds-warning\">main ↓2 • 1 modified</span></div>",
+      "css": ".ds-terminal { font-family: monospace; white-space: pre; color: #243446; } .ds-muted { color: #566B7F; } .ds-brand { color: #176C61; } .ds-warning { color: #895B10; } .ds-danger { color: #AC3439; } .ds-selected { background: #E2EFEB; font-weight: 700; } .ds-rule { color: #C4CDD6; } @media (prefers-color-scheme: dark) { .ds-terminal { color: #D8E2ED; } .ds-muted { color: #8CA2B8; } .ds-brand { color: #63C5B5; } .ds-warning { color: #E5B567; } .ds-danger { color: #EE9298; } .ds-selected { background: #203B3B; } .ds-rule { color: #354555; } } .ds-context { border-left: 1px solid #C4CDD6; padding: 0 1ch; } @media (prefers-color-scheme: dark) { .ds-context { border-left-color: #354555; } }"
+    },
+    {
+      "name": "Navigation footer",
+      "kind": "custom",
+      "description": "Position and key hints compress with available terminal width.",
+      "html": "<div class=\"ds-terminal ds-muted\">3/12        ↑/↓ j/k move · tab files · PgUp/PgDn · q quit</div>",
+      "css": ".ds-terminal { font-family: monospace; white-space: pre; color: #243446; } .ds-muted { color: #566B7F; } .ds-brand { color: #176C61; } .ds-warning { color: #895B10; } .ds-danger { color: #AC3439; } .ds-selected { background: #E2EFEB; font-weight: 700; } .ds-rule { color: #C4CDD6; } @media (prefers-color-scheme: dark) { .ds-terminal { color: #D8E2ED; } .ds-muted { color: #8CA2B8; } .ds-brand { color: #63C5B5; } .ds-warning { color: #E5B567; } .ds-danger { color: #EE9298; } .ds-selected { background: #203B3B; } .ds-rule { color: #354555; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Workspace Dispatch Board",
+    "overview": "A terminal dispatch board: aligned repository strips make workspace exceptions easy to scan while preserving density. Open gutters and restrained sea-glass selection organize the view; the terminal owns its font and background.",
+    "keyCharacteristics": [
+      "One repository per row by default.",
+      "Explicit status text alongside semantic color.",
+      "Adaptive light and dark colors; no app-wide background fill."
+    ],
+    "rules": [
+      {
+        "name": "The Visible Selection Rule",
+        "body": "Selection retains its marker and emphasis when terminal colors are unavailable.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do preserve terminal-cell alignment and deterministic repository order.",
+      "Do keep selection visible through the › marker and bold text.",
+      "Do expose failure, stale, conflict, and ahead/behind state in text.",
+      "Do use Tab to reveal file detail without changing the default density."
+    ],
+    "donts": [
+      "Don't force a terminal font, font size, or full-screen background.",
+      "Don't use color alone to identify selection or status.",
+      "Don't add borders around every repository or consume rows with decoration."
+    ]
+  }
+}

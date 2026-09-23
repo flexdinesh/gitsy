@@ -68,7 +68,17 @@ func ShortStatus(repoPath string) Result {
 }
 
 func ShortStatusContext(ctx context.Context, repoPath string) Result {
-	return RunContext(ctx, repoPath, "status", "--short", "--branch", "--ahead-behind")
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	result := RunContext(ctx, repoPath, "status", "--short", "--branch", "--ahead-behind")
+	if !result.OK && ctx.Err() == context.DeadlineExceeded {
+		result.Stderr = "git status timed out"
+	}
+	return result
 }
 
 func WorktreeList(repoPath string) Result {

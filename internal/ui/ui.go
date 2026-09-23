@@ -68,6 +68,7 @@ func Title(results []RepoResult, totalDiscovered int) string {
 	changed := 0
 	behind := 0
 	failed := 0
+	stale := 0
 	for _, result := range results {
 		if len(result.Status.Items) > 0 {
 			changed++
@@ -77,6 +78,9 @@ func Title(results []RepoResult, totalDiscovered int) string {
 		}
 		if result.Failed || result.Sync != nil && result.Sync.Kind == "failed" {
 			failed++
+		}
+		if result.Stale {
+			stale++
 		}
 	}
 
@@ -89,6 +93,9 @@ func Title(results []RepoResult, totalDiscovered int) string {
 	}
 	if failed > 0 {
 		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	}
+	if stale > 0 {
+		parts = append(parts, fmt.Sprintf("%d stale", stale))
 	}
 	return strings.Join(parts, " • ")
 }
@@ -128,13 +135,13 @@ func RowsForRepo(result RepoResult) []Row {
 		summary.Text += " • " + counts
 	}
 	if result.Stale {
-		summary.Text += " ⚠ stale"
+		summary.Text = "⚠ stale · " + summary.Text
 		summary.Tone = "yellow"
 		summary.Dim = false
 	}
 	if result.Failed {
-		summary.Text += " ⚠ status failed"
-		summary.Tone = "yellow"
+		summary.Text = "⚠ status failed"
+		summary.Tone = "red"
 		summary.Dim = false
 	}
 
@@ -142,11 +149,13 @@ func RowsForRepo(result RepoResult) []Row {
 		switch result.Sync.Kind {
 		case "synced":
 			summary.Text += fmt.Sprintf(" ⤓ synced ↓%d", result.Sync.Pulled)
-			summary.Tone = "green"
+			if !result.Failed && !result.Stale {
+				summary.Tone = "green"
+			}
 			summary.Dim = false
 		case "failed":
-			summary.Text += " ⚠ sync failed"
-			summary.Tone = "yellow"
+			summary.Text = "⚠ sync failed · " + summary.Text
+			summary.Tone = "red"
 			summary.Dim = false
 		}
 	}
@@ -174,6 +183,60 @@ type BranchSummary struct {
 	Text string
 	Tone string
 	Dim  bool
+}
+
+// CompactSummary keeps actionable state ahead of branch names in narrow columns.
+func CompactSummary(result RepoResult) string {
+	if result.Loading {
+		return "checking status…"
+	}
+	if result.Failed {
+		return "⚠ status failed"
+	}
+	parts := []string{}
+	if result.Sync != nil && result.Sync.Kind == "failed" {
+		parts = append(parts, "⚠ sync failed")
+	}
+	if result.Stale {
+		parts = append(parts, "⚠ stale")
+	}
+	conflicts := 0
+	for _, item := range result.Status.Items {
+		if item.Category == status.Conflict {
+			conflicts++
+		}
+	}
+	if conflicts > 0 {
+		parts = append(parts, fmt.Sprintf("%d conflict", conflicts))
+	} else if count := len(result.Status.Items); count > 0 {
+		parts = append(parts, fmt.Sprintf("%d files", count))
+	}
+	if result.Sync != nil && result.Sync.Kind == "synced" {
+		parts = append(parts, fmt.Sprintf("synced ↓%d", result.Sync.Pulled))
+	}
+	branch := result.Status.Branch
+	if branch != nil {
+		if branch.Behind > 0 {
+			parts = append(parts, fmt.Sprintf("↓%d", branch.Behind))
+		}
+		if branch.Ahead > 0 {
+			parts = append(parts, fmt.Sprintf("↑%d", branch.Ahead))
+		}
+		if branch.Gone {
+			parts = append(parts, "upstream gone")
+		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "✓ clean")
+	}
+	if branch != nil {
+		name := branch.Name
+		if name == "" {
+			name = "detached"
+		}
+		parts = append(parts, name)
+	}
+	return strings.Join(parts, " · ")
 }
 
 func FormatBranchSummary(parsed status.Parsed) BranchSummary {
@@ -207,8 +270,14 @@ func FormatBranchSummary(parsed status.Parsed) BranchSummary {
 		return BranchSummary{Text: strings.Join(parts, " "), Tone: "green", Dim: true}
 	}
 	tone := "blue"
-	if branch.Gone {
+	if branch.Gone || branch.Behind > 0 {
 		tone = "yellow"
+	}
+	for _, item := range parsed.Items {
+		if item.Category == status.Conflict {
+			tone = "red"
+			break
+		}
 	}
 	return BranchSummary{Text: strings.Join(parts, " "), Tone: tone}
 }

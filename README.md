@@ -42,6 +42,10 @@ gitsy --help
 gitsy --version
 ```
 
+Use `↑/↓` or `j/k` to select repositories, `Tab` to toggle file details,
+`PgUp/PgDn` or the mouse wheel to scroll, and `q` to quit. Wide terminals
+show context for the selected repository. Colors adapt to light and dark themes.
+
 ## Development
 
 See [docs/development.md](docs/development.md).
