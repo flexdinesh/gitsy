@@ -26,6 +26,7 @@ type rowEntry struct {
 	marker    bool   // selected repo's first row shows ›
 	repo      string
 	status    string
+	compact   string
 	divider   bool
 	tone      string
 	bold      bool
@@ -48,6 +49,7 @@ type Model struct {
 	width    int
 	height   int
 	selected int
+	expanded bool
 	offset   int
 	capacity int
 	rows     []rowEntry
@@ -94,7 +96,7 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 	}
 
 	spin := spinner.New()
-	spin.Spinner = spinner.Line
+	spin.Spinner = spinner.Dot
 
 	return Model{
 		ctx:      ctx,
@@ -169,10 +171,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return model, nil
 }
 
-// View stacks three zones: borderless header bar, a panels row with the
-// compact table left and a static info panel right, borderless footer.
-// Pure: recomputes layout into locals and never mutates the model.
-// Only the table viewport scrolls; the info panel never moves.
+// View derives the ledger and selected-repository context without I/O.
 func (model Model) View() string {
 	width := model.width
 	height := model.height
@@ -182,20 +181,22 @@ func (model Model) View() string {
 	if height == 0 {
 		height = 24
 	}
-	width = max(width, minWidth)
+	if width < minWidth || height < 7 {
+		return model.compactView(max(1, width), max(1, height))
+	}
 
 	tableOuter, infoOuter, infoShown := layoutWidths(width)
 	tableWidth := max(1, tableOuter-2-padX*2)
 	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.results)
 	cols := [3]int{numberWidth, repoWidth, statusWidth}
-	entries := buildEntries(model.spinnerResults(), model.selected)
+	entries := model.tableRows()
 	capacity := tableViewportHeight(height)
 	offset := clamp(model.offset, 0, max(0, len(entries)-capacity))
 
 	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected))
 	middle := tableBox
 	if infoShown {
-		infoBox := renderInfo(infoOuter, lipgloss.Height(tableBox))
+		infoBox := model.renderInfo(infoOuter, lipgloss.Height(tableBox))
 		gap := lipgloss.NewStyle().
 			Width(panelGap).
 			Height(lipgloss.Height(tableBox)).
@@ -210,9 +211,43 @@ func (model Model) View() string {
 }
 
 func tableViewportHeight(height int) int {
-	// Header bar (1) + table border (2) + column header (1) +
-	// header rule (1) + footer bar (1).
-	return max(minTableHeight, height-6)
+	// Header and summary (3), column heading and rule (2), footer (1).
+	return max(1, height-6)
+}
+
+func (model Model) compactView(width, height int) string {
+	lines := []string{ui.Title(model.results, len(model.results))}
+	if len(model.results) == 0 {
+		lines = append(lines, ui.EmptyMessage(0))
+	} else {
+		result := model.results[clamp(model.selected, 0, len(model.results)-1)]
+		lines = append(lines, iconSelected+" "+result.Repo.DisplayName)
+		for _, row := range ui.RowsForRepo(result) {
+			lines = append(lines, strings.TrimSpace(row.Text))
+		}
+	}
+	if height > 1 {
+		lines = lines[:min(len(lines), height-1)]
+		lines = append(lines, "↑↓ move · tab files · q quit")
+	} else {
+		lines = lines[:1]
+	}
+	for index := range lines {
+		lines[index] = truncateCell(lines[index], width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrapPlain(value string, width int) []string {
+	return strings.Split(runewidth.Wrap(value, max(1, width)), "\n")
+}
+
+func wrapInfo(value string, width int, color lipgloss.TerminalColor) []string {
+	lines := wrapPlain(value, width)
+	for index := range lines {
+		lines[index] = lipgloss.NewStyle().Foreground(color).Render(lines[index])
+	}
+	return lines
 }
 
 func (model Model) inspectRepo(index int, repo discover.Repo) tea.Cmd {
@@ -261,6 +296,10 @@ func isQuitKey(message tea.KeyMsg) bool {
 func (model *Model) navigate(message tea.KeyMsg) bool {
 	pressed := message.String()
 	switch pressed {
+	case "tab":
+		model.expanded = !model.expanded
+		model.offset = 0
+		model.refresh()
 	case "up", "k":
 		model.moveRepo(-1)
 	case "down", "j":
@@ -331,7 +370,7 @@ func (model *Model) updateTableWithSize(width int, height int) {
 	model.tableWidth = tableWidth
 	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.results)
 	model.colWidths = [3]int{numberWidth, repoWidth, statusWidth}
-	model.rows = buildEntries(model.spinnerResults(), model.selected)
+	model.rows = model.tableRows()
 	model.capacity = max(1, height)
 	if len(model.results) > 0 {
 		model.selected = clamp(model.selected, 0, len(model.results)-1)
@@ -407,6 +446,7 @@ func (model Model) spinnerResults() []ui.RepoResult {
 	copy(results, model.results)
 	for index := range results {
 		if results[index].Loading {
+			// Rows stay plain until styling, including the spinner glyph.
 			results[index].LoadingText = model.spin.View()
 		}
 	}
@@ -414,7 +454,17 @@ func (model Model) spinnerResults() []ui.RepoResult {
 }
 
 func (model Model) tableRows() []rowEntry {
-	return buildEntries(model.spinnerResults(), model.selected)
+	entries := buildEntries(model.spinnerResults(), model.selected)
+	if model.expanded {
+		return entries
+	}
+	compact := make([]rowEntry, 0, len(model.results))
+	for _, entry := range entries {
+		if entry.number != "" || entry.repoIndex < 0 && !entry.divider {
+			compact = append(compact, entry)
+		}
+	}
+	return compact
 }
 
 func buildEntries(results []ui.RepoResult, selected int) []rowEntry {
@@ -433,6 +483,7 @@ func buildEntryList(results []ui.RepoResult, selected int) []rowEntry {
 		}
 
 		digits := len(strconv.Itoa(max(1, len(results))))
+		compact := ui.CompactSummary(result)
 		for rowIndex, row := range rows {
 			number := ""
 			marker := false
@@ -447,6 +498,7 @@ func buildEntryList(results []ui.RepoResult, selected int) []rowEntry {
 				marker:    marker,
 				repo:      repo,
 				status:    row.Text,
+				compact:   compact,
 				tone:      row.Tone,
 				bold:      row.Bold,
 				dim:       row.Dim,
@@ -490,7 +542,7 @@ func padCell(value string, width int) string {
 // Plain text is measured first, styled last, so ANSI never affects layout.
 func (model Model) renderHeader(width int) string {
 	content := max(1, width-spaceSM*2)
-	left := ui.Title(model.results, len(model.results))
+	left := "gitsy"
 	right := model.headerRight()
 	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
 		if runewidth.StringWidth(right)+1 <= content {
@@ -501,7 +553,46 @@ func (model Model) renderHeader(width int) string {
 		}
 	}
 	gap := strings.Repeat(" ", content-runewidth.StringWidth(left)-runewidth.StringWidth(right))
-	return headerBarStyle(width).Render(headerTitleStyle().Render(left) + gap + headerMetaStyle().Render(right))
+	title := headerTitleStyle().Foreground(brand).Render(left) + gap + headerMetaStyle().Render(right)
+	summary := strings.TrimPrefix(ui.Title(model.results, len(model.results)), "gitsy • ")
+	parts := strings.Split(summary, " • ")
+	// Failures retain priority even when a very narrow summary must omit fields.
+	for index, part := range parts {
+		if strings.Contains(part, "failed") && index > 1 {
+			copy(parts[2:index+1], parts[1:index])
+			parts[1] = part
+			break
+		}
+	}
+	lines := []string{""}
+	used := 0
+	for _, part := range parts {
+		needed := runewidth.StringWidth(part)
+		if used > 0 && used+3+needed > content {
+			if len(lines) == 2 {
+				break
+			}
+			lines = append(lines, "")
+			used = 0
+		}
+		color := textLo
+		if strings.Contains(part, "changed") || strings.Contains(part, "behind") || strings.Contains(part, "stale") {
+			color = warning
+		}
+		if strings.Contains(part, "failed") {
+			color = danger
+		}
+		if used > 0 {
+			lines[len(lines)-1] += headerMetaStyle().Render(" · ")
+			used += 3
+		}
+		lines[len(lines)-1] += lipgloss.NewStyle().Foreground(color).Render(truncateCell(part, content-used))
+		used += needed
+	}
+	if len(lines) == 1 {
+		lines = append(lines, "")
+	}
+	return headerBarStyle(width).Render(title + "\n" + strings.Join(lines, "\n"))
 }
 
 // headerRight is the header meta without the leading separator: the gap
@@ -518,12 +609,11 @@ func (model Model) headerRight() string {
 	return strings.TrimPrefix(fmtStatus(mode, pending), " • ")
 }
 
-// renderInfo draws the static right panel. boxHeight matches the table
-// panel so both bottoms align; tips are padded to fill, never scrolled.
-func renderInfo(infoOuter int, boxHeight int) string {
-	content := max(1, infoOuter-2-padX*2)
-	lines := infoLines(content)
-	want := max(1, boxHeight-2)
+// The context rail shares the ledger's height.
+func (model Model) renderInfo(infoOuter int, boxHeight int) string {
+	content := max(1, infoOuter-1-padX*2)
+	lines := model.infoLines(content)
+	want := max(1, boxHeight)
 	for len(lines) < want {
 		lines = append(lines, "")
 	}
@@ -531,37 +621,44 @@ func renderInfo(infoOuter int, boxHeight int) string {
 	return infoStyle(infoOuter).Render(strings.Join(lines, "\n"))
 }
 
-// infoLines builds the static tips panel: plain text, truncation-safe.
-func infoLines(width int) []string {
+func (model Model) infoLines(width int) []string {
 	lines := []string{
-		columnHeaderStyle().Render(truncateCell("INFO", width)),
+		columnHeaderStyle().Render(truncateCell("Selected repository", width)),
 		dividerStyle().Render(strings.Repeat("─", max(1, width))),
 	}
-	sections := []struct {
-		label   string
-		entries []string
-	}{
-		{"NAVIGATE", []string{"↑/↓ j/k · move", "PgUp/PgDn · page", "g / G · ends", "wheel · scroll"}},
-		{"SELECT", []string{"› · current repo"}},
-		{"QUIT", []string{"q · quit"}},
+	if len(model.results) == 0 {
+		return append(lines, "", "Scan a directory containing", "Git repositories.")
 	}
-	for index, section := range sections {
-		if index > 0 {
-			lines = append(lines, "")
+	result := model.results[clamp(model.selected, 0, len(model.results)-1)]
+	lines = append(lines, "", headerTitleStyle().Render(truncateCell(result.Repo.DisplayName, width)))
+	lines = append(lines, wrapInfo(result.Repo.Path, width, textLo)...)
+	if branch := result.Status.Branch; branch != nil {
+		lines = append(lines, "", infoSectionStyle().Render("Branch"))
+		name := branch.Name
+		if name == "" {
+			name = "detached"
 		}
-		lines = append(lines, infoSectionStyle().Render(truncateCell(section.label, width)))
-		for _, entry := range section.entries {
-			lines = append(lines, truncateCell(entry, width))
+		lines = append(lines, wrapInfo(name, width, textHi)...)
+		if branch.Upstream != "" {
+			lines = append(lines, wrapInfo(branch.Upstream, width, textLo)...)
 		}
+	}
+	lines = append(lines, "", infoSectionStyle().Render("Status"))
+	rows := ui.RowsForRepo(result)
+	if len(rows) > 0 {
+		for _, line := range wrapPlain(rows[0].Text, width) {
+			lines = append(lines, toneStyle(rows[0].Tone, false, false).Render(line))
+		}
+	}
+	if result.Sync != nil && result.Sync.Kind == "skipped" {
+		lines = append(lines, wrapInfo("Sync skipped: "+result.Sync.Reason, width, warning)...)
 	}
 	return lines
 }
 
-// layoutWidths splits the terminal into table and info panels: roughly
-// 2/3 table and 1/3 info. Either panel below its minimum collapses to a
-// full-width table with the footer carrying the key hints instead.
+// Context collapses when it would crowd repository state.
 func layoutWidths(termWidth int) (tableOuter int, infoOuter int, infoShown bool) {
-	infoOuter = clamp(termWidth/3, infoMinOuter, infoMaxOuter)
+	infoOuter = clamp(termWidth/4, infoMinOuter, infoMaxOuter)
 	if termWidth-infoOuter-panelGap < tableMinOuter {
 		return termWidth, 0, false
 	}
@@ -575,8 +672,8 @@ func renderTableBody(entries []rowEntry, cols [3]int, offset int, capacity int, 
 	numberWidth, repoWidth, statusWidth := cols[0], cols[1], cols[2]
 	gap := strings.Repeat(" ", columnGap)
 	header := padCell(truncateCell("#", numberWidth), numberWidth) + gap +
-		padCell(truncateCell("REPO", repoWidth), repoWidth) + gap +
-		padCell(truncateCell("STATUS", statusWidth), statusWidth)
+		padCell(truncateCell("Repository", repoWidth), repoWidth) + gap +
+		padCell(truncateCell("Branch / status", statusWidth), statusWidth)
 	lines := []string{
 		columnHeaderStyle().Render(header),
 		dividerStyle().Render(strings.Repeat("─", max(1, lineWidthFor(cols)))),
@@ -594,6 +691,9 @@ func renderTableBody(entries []rowEntry, cols [3]int, offset int, capacity int, 
 	for _, entry := range visible {
 		lines = append(lines, renderRow(entry, cols, selected))
 	}
+	for len(lines) < capacity+2 {
+		lines = append(lines, strings.Repeat(" ", lineWidthFor(cols)))
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -610,12 +710,13 @@ func (model Model) visibleRows() []rowEntry {
 	return visibleSlice(model.rows, model.offset, model.capacity)
 }
 
-// renderRow draws one body line. Selected rows get per-segment styles
-// that each carry no background fill, keeping the highlight as bold
-// text plus the › marker.
+// Keep the selection marker visible even without terminal color support.
 func renderRow(entry rowEntry, cols [3]int, selected int) string {
 	if entry.divider {
-		return dividerStyle().Render(strings.Repeat("─", max(1, lineWidthFor(cols))))
+		return strings.Repeat(" ", max(1, lineWidthFor(cols)))
+	}
+	if entry.repoIndex < 0 {
+		return headerMetaStyle().Render(padCell(truncateCell(entry.status, lineWidthFor(cols)), lineWidthFor(cols)))
 	}
 	numberWidth, repoWidth, statusWidth := cols[0], cols[1], cols[2]
 	gap := strings.Repeat(" ", columnGap)
@@ -625,20 +726,21 @@ func renderRow(entry rowEntry, cols [3]int, selected int) string {
 	}
 	number := padCell(truncateCell(marker+" "+entry.number, numberWidth), numberWidth)
 	repo := padCell(truncateCell(entry.repo, repoWidth), repoWidth)
-	status := padCell(truncateCell(entry.status, statusWidth), statusWidth)
+	statusText := entry.status
+	if entry.number != "" && entry.compact != "" && runewidth.StringWidth(statusText) > statusWidth {
+		statusText = entry.compact
+	}
+	status := padCell(truncateCell(statusText, statusWidth), statusWidth)
 	if entry.repoIndex == selected && entry.repoIndex >= 0 {
-		mark := " "
+		mark := selectedNumStyle().Background(selection).Render(" ")
 		if entry.marker {
-			mark = selectedMarkerStyle().Render(iconSelected)
+			mark = selectedMarkerStyle().Background(selection).Render(iconSelected)
 		}
 		return mark +
-			selectedNumStyle().Render(padCell(truncateCell(" "+entry.number, numberWidth-1), numberWidth-1)) +
-			gap +
-			selectedNumStyle().Render(repo) +
-			gap +
-			toneStyle(entry.tone, entry.bold, entry.dim).Render(status)
+			selectedNumStyle().Background(selection).Render(padCell(truncateCell(" "+entry.number, numberWidth-1), numberWidth-1)+gap+repo+gap) +
+			toneStyle(entry.tone, entry.bold, false).Background(selection).Render(status)
 	}
-	return number + gap + repo + gap + toneStyle(entry.tone, entry.bold, entry.dim).Render(status)
+	return headerMetaStyle().Render(number) + gap + lipgloss.NewStyle().Foreground(textHi).Render(repo) + gap + toneStyle(entry.tone, false, entry.dim).Render(status)
 }
 
 func (model Model) renderTable() string {
@@ -667,7 +769,7 @@ func columnWidths(width int, results []ui.RepoResult) (int, int, int) {
 
 func fmtStatus(mode string, pending int) string {
 	if pending <= 0 {
-		return " • done"
+		return " • " + mode + " · done"
 	}
 	return " • " + mode + " • " + strconv.Itoa(pending) + " pending"
 }
@@ -675,25 +777,20 @@ func fmtStatus(mode string, pending int) string {
 // renderFooter is always shown: position left, key hints right.
 // Both parts collapse gracefully at narrow widths.
 func (model Model) renderFooter(width int) string {
-	_, _, infoShown := layoutWidths(max(width, minWidth))
-	return footerStyle(width).Render(model.footerPlain(max(1, width-spaceSM*2), infoShown))
+	return footerStyle(width).Render(model.footerPlain(max(1, width-spaceSM*2)))
 }
 
-// footerPlain lays out the footer text to exactly content width. When
-// the info panel is visible it already carries the key hints, so the
-// footer keeps just position and quit.
-func (model Model) footerPlain(content int, infoShown bool) string {
+func (model Model) footerPlain(content int) string {
 	position := ""
 	if len(model.results) > 0 {
 		position = strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.results))
 	}
 	hints := []string{
-		"↑/↓ j/k • PgUp/PgDn • wheel • q quit",
-		"↑/↓ j/k • pg • wheel • q",
-		"↑↓ • wheel • q",
-	}
-	if infoShown {
-		hints = []string{"q quit"}
+		"↑/↓ j/k move · tab files · PgUp/PgDn · q quit",
+		"↑/↓ j/k · tab files · q quit",
+		"↑↓ · tab files · q",
+		"tab files · q",
+		"q quit",
 	}
 	hint := hints[len(hints)-1]
 	for _, option := range hints {

@@ -6,3 +6,5 @@ coverage/
 dist/
 build/
 bin/
+.impeccable/review/
+.playwright-mcp/

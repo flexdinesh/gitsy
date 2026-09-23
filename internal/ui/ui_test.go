@@ -121,7 +121,7 @@ func TestTitleSummarizesRepoStates(t *testing.T) {
 func TestFormatBranchSummary(t *testing.T) {
 	parsed := status.Parse("## main...origin/main [ahead 1, behind 2]\n")
 	got := FormatBranchSummary(parsed)
-	want := BranchSummary{Text: "main ↑1 ↓2", Tone: "blue"}
+	want := BranchSummary{Text: "main ↑1 ↓2", Tone: "yellow"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %#v, got %#v", want, got)
 	}
