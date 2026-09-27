@@ -73,12 +73,15 @@ func run(argv []string) error {
 
 	warnings := &warningCollector{}
 
-	repos := discover.DiscoverContext(ctx, discover.Options{
+	repos, err := discover.DiscoverContext(ctx, discover.Options{
 		Cwd:      options.Dir,
 		MaxDepth: options.MaxDepth,
 		Verbose:  options.Verbose,
 		Warn:     warnings.Add,
 	})
+	if err != nil {
+		return err
+	}
 
 	noFetch := options.NoFetch
 	if options.Sync {

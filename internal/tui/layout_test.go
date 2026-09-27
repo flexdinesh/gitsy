@@ -10,8 +10,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
-	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/muesli/termenv"
 )
 
@@ -33,7 +33,7 @@ func previewModel() Model {
 	}
 	model.results[4].Stale = true
 	model.results[5].Failed = true
-	model.results[6].Sync = &ui.SyncOutcome{Kind: "synced", Pulled: 2}
+	model.results[6].Sync = &inspect.SyncOutcome{Kind: "synced", Pulled: 2}
 	model.results[7].Loading = true
 	return model
 }

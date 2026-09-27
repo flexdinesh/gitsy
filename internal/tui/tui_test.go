@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/flexdinesh/gitsy/internal/discover"
+	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
 	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/mattn/go-runewidth"
@@ -29,7 +30,7 @@ func TestUpdateReplacesLoadingRepoWhenInspectionCompletes(t *testing.T) {
 
 	updated, _ := model.Update(repoDoneMsg{
 		index: 0,
-		result: ui.RepoResult{
+		result: inspect.Result{
 			Repo:   testRepo("repo"),
 			Status: status.Parse("## main...origin/main\n"),
 		},
@@ -48,7 +49,7 @@ func TestViewShowsCompletedCleanRepos(t *testing.T) {
 	model := newTestModel([]discover.Repo{testRepo("repo")})
 	updated, _ := model.Update(repoDoneMsg{
 		index: 0,
-		result: ui.RepoResult{
+		result: inspect.Result{
 			Repo:   testRepo("repo"),
 			Status: status.Parse("## main...origin/main\n"),
 		},
@@ -56,6 +57,28 @@ func TestViewShowsCompletedCleanRepos(t *testing.T) {
 
 	if rows := ui.BuildRows(updated.(Model).results); len(rows) == 0 {
 		t.Fatal("expected clean completed repo to remain visible")
+	}
+}
+
+func TestCompletionKeepsInspectionFailuresVisible(t *testing.T) {
+	model := newTestModel(testRepos("repo"))
+	updated, _ := model.Update(repoDoneMsg{
+		index: 0,
+		result: inspect.Result{
+			Repo:   testRepo("repo"),
+			Failed: true,
+			Stale:  true,
+			Sync:   &inspect.SyncOutcome{Kind: "failed", Reason: "merge failed"},
+		},
+	})
+	view := updated.(Model).View()
+	for _, text := range []string{"status failed", "sync failed", "1 failed", "1 stale"} {
+		if !strings.Contains(view, text) {
+			t.Fatalf("completion lost failure state %q: %s", text, view)
+		}
+	}
+	if strings.Contains(view, "pending") || strings.Contains(view, "clean") {
+		t.Fatalf("failed completion must not stay loading or claim clean: %s", view)
 	}
 }
 
@@ -80,8 +103,8 @@ func TestUpdateQuitsOnQAndCtrlC(t *testing.T) {
 
 func TestUpdateCancelsContextOnQuit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	model := newModel(ctx, cancel, []discover.Repo{testRepo("repo")}, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
-		return ui.RepoResult{Repo: repo}
+	model := newModel(ctx, cancel, []discover.Repo{testRepo("repo")}, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) inspect.Result {
+		return inspect.Result{Repo: repo}
 	})
 
 	_, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
@@ -116,7 +139,7 @@ func TestUpdateStartsNextInspectionWhenOneCompletes(t *testing.T) {
 
 	updated, command := model.Update(repoDoneMsg{
 		index: 0,
-		result: ui.RepoResult{
+		result: inspect.Result{
 			Repo:   repos[0],
 			Status: status.Parse("## main...origin/main\n"),
 		},
@@ -412,7 +435,7 @@ func TestSelectionTracksRepoWhenEarlierRowsExpand(t *testing.T) {
 
 	updated, _ = model.Update(repoDoneMsg{
 		index: 0,
-		result: ui.RepoResult{
+		result: inspect.Result{
 			Repo: testRepo("repo-a"),
 			Status: status.Parse(strings.Join([]string{
 				"## main",
@@ -598,8 +621,8 @@ func TestTableColumnsHaveSpacingAndFitWidth(t *testing.T) {
 }
 
 func newTestModel(repos []discover.Repo) Model {
-	return newModel(context.Background(), nil, repos, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) ui.RepoResult {
-		return ui.RepoResult{
+	return newModel(context.Background(), nil, repos, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) inspect.Result {
+		return inspect.Result{
 			Repo:   repo,
 			Status: status.Parse("## main...origin/main\n"),
 		}

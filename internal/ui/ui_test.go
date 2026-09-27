@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/flexdinesh/gitsy/internal/discover"
+	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
 )
 
@@ -19,7 +20,7 @@ func TestBuildRowsShowsSyncedCleanRepo(t *testing.T) {
 	rows := BuildRows([]RepoResult{{
 		Repo:   repo,
 		Status: status.Parse("## main...origin/main\n"),
-		Sync:   &SyncOutcome{Kind: "synced", Pulled: 1},
+		Sync:   &inspect.SyncOutcome{Kind: "synced", Pulled: 1},
 	}})
 
 	if len(rows) == 0 {
@@ -107,7 +108,7 @@ func TestTitleSummarizesRepoStates(t *testing.T) {
 			Failed: true,
 		},
 		{
-			Sync: &SyncOutcome{Kind: "failed"},
+			Sync: &inspect.SyncOutcome{Kind: "failed"},
 		},
 	}
 

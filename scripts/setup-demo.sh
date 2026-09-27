@@ -10,11 +10,29 @@
 set -euo pipefail
 
 TARGET="${1:-/tmp/gitsy-demo}"
+while [ "$TARGET" != "/" ] && [ "${TARGET%/}" != "$TARGET" ]; do
+  TARGET="${TARGET%/}"
+done
+MARKER=".gitsy-demo"
+
+if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
+  if [ ! -d "$TARGET" ] || [ -L "$TARGET" ] || [ -e "$TARGET/.git" ] ||
+     [ ! -f "$TARGET/$MARKER" ] || [ -L "$TARGET/$MARKER" ] ||
+     [ "$(cat "$TARGET/$MARKER")" != "gitsy demo workspace" ]; then
+    echo "Refusing to reset unowned demo directory: $TARGET" >&2
+    exit 1
+  fi
+  rm -rf -- "$TARGET"
+fi
+
+mkdir -p -- "$(dirname -- "$TARGET")"
+mkdir -- "$TARGET"
+echo "gitsy demo workspace" > "$TARGET/$MARKER"
+TARGET="$(cd -- "$TARGET" && pwd -P)"
 
 export GIT_AUTHOR_NAME="Gitsy Demo" GIT_AUTHOR_EMAIL="demo@example.com"
 export GIT_COMMITTER_NAME="Gitsy Demo" GIT_COMMITTER_EMAIL="demo@example.com"
 
-rm -rf "$TARGET"
 mkdir -p "$TARGET/remotes"
 
 mk() { # $1 = name
@@ -40,7 +58,7 @@ echo "feature" > "$TARGET/repo-staged/feature.go"
 git -C "$TARGET/repo-staged" add feature.go
 
 # Ahead: local commit past origin (file:// bare remote, works offline).
-git init -q --bare "$TARGET/remotes/repo-ahead.git"
+git init -q --bare -b main "$TARGET/remotes/repo-ahead.git"
 mk repo-ahead
 git -C "$TARGET/repo-ahead" remote add origin "$TARGET/remotes/repo-ahead.git"
 git -C "$TARGET/repo-ahead" push -q -u origin main
@@ -48,7 +66,7 @@ echo "local work" >> "$TARGET/repo-ahead/README.md"
 git -C "$TARGET/repo-ahead" commit -qam "local commit ahead"
 
 # Behind: origin moved on; gitsy's default fetch reveals it.
-git init -q --bare "$TARGET/remotes/repo-behind.git"
+git init -q --bare -b main "$TARGET/remotes/repo-behind.git"
 mk repo-behind
 git -C "$TARGET/repo-behind" remote add origin "$TARGET/remotes/repo-behind.git"
 git -C "$TARGET/repo-behind" push -q -u origin main

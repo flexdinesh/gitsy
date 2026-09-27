@@ -20,7 +20,10 @@ func TestDiscoversCleanChildReposAndFiltersStatusByChangedFlag(t *testing.T) {
 	mkdirAll(t, repo)
 	runGit(t, repo, "init")
 
-	repos := discover.Discover(discover.Options{Cwd: dir, MaxDepth: 3})
+	repos, err := discover.Discover(discover.Options{Cwd: dir, MaxDepth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(repos) != 1 {
 		t.Fatalf("expected one repo, got %d", len(repos))
 	}
@@ -53,13 +56,46 @@ func TestDiscoversLinkedWorktreesFromDiscoveredRepo(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "initial")
 	runGit(t, repo, "worktree", "add", "-b", "feature", worktree)
 
-	repos := discover.Discover(discover.Options{Cwd: dir, MaxDepth: 3})
+	repos, err := discover.Discover(discover.Options{Cwd: dir, MaxDepth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
 	names := []string{}
 	for _, repo := range repos {
 		names = append(names, repo.DisplayName)
 	}
 	if !reflect.DeepEqual(names, []string{"linked-worktree", "repo"}) {
 		t.Fatalf("expected linked-worktree and repo, got %#v", names)
+	}
+}
+
+func TestDiscoversExternalWorktreesWithSpecialPaths(t *testing.T) {
+	requireGit(t)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	for _, name := range []string{"linked\nrepo", "linked\r\nrepo", "linked\n", "linked "} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			repo := filepath.Join(dir, "repo")
+			worktree := filepath.Join(t.TempDir(), name)
+			runGit(t, dir, "init", "-q", "-b", "main", repo)
+			configureGitUser(t, repo)
+			runGit(t, repo, "commit", "--allow-empty", "-qm", "initial")
+			runGit(t, repo, "worktree", "add", "-q", "-b", "linked", worktree)
+			repos, err := discover.Discover(discover.Options{Cwd: dir, MaxDepth: 3})
+			if err != nil || len(repos) != 2 {
+				t.Fatalf("expected main and external worktree: repos=%v err=%v", repos, err)
+			}
+			found := false
+			for _, discovered := range repos {
+				if discovered.Path == worktree {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("worktree path must be preserved: %q", worktree)
+			}
+		})
 	}
 }
 

@@ -34,4 +34,13 @@ git commit -m "docs: update readme [skip ci]"
 go run ./cmd/gitsy --dir /tmp/gitsy-demo
 ```
 
-Re-run the script anytime to reset fixture state (e.g. after `--sync`).
+Re-run the script to reset fixture state (e.g. after `--sync`). It only resets
+directories carrying its `.gitsy-demo` ownership marker. Existing unmarked
+directories and symlink targets are rejected; choose a new path for older demos.
+
+Pass a separate target for each concurrent run:
+
+```bash
+./scripts/setup-demo.sh /tmp/gitsy-demo-my-run
+go run ./cmd/gitsy --dir /tmp/gitsy-demo-my-run
+```

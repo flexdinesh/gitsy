@@ -6,14 +6,9 @@ import (
 	"strings"
 
 	"github.com/flexdinesh/gitsy/internal/discover"
+	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
 )
-
-type SyncOutcome struct {
-	Kind   string
-	Pulled int
-	Reason string
-}
 
 type RepoResult struct {
 	Repo        discover.Repo
@@ -22,7 +17,7 @@ type RepoResult struct {
 	Stale       bool
 	Loading     bool
 	LoadingText string
-	Sync        *SyncOutcome
+	Sync        *inspect.SyncOutcome
 }
 
 type Row struct {
@@ -321,6 +316,9 @@ func formatChangeCounts(items []status.Item) string {
 
 func itemCategoryStyle(item status.Item) categoryStyle {
 	itemStyle := categoryStyles[item.Category]
+	if item.Category == status.Conflict {
+		return itemStyle
+	}
 	if strings.Contains(item.Code, "A") {
 		itemStyle.icon = "+"
 		itemStyle.label = "added"

@@ -16,7 +16,7 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-type inspector func(context.Context, discover.Repo, bool, bool, func(string)) ui.RepoResult
+type inspector func(context.Context, discover.Repo, bool, bool, func(string)) inspect.Result
 
 // rowEntry is one rendered table body line. All text stays plain here;
 // truncation and styling happen at render time so ANSI codes never
@@ -65,7 +65,7 @@ type Model struct {
 
 type repoDoneMsg struct {
 	index  int
-	result ui.RepoResult
+	result inspect.Result
 }
 
 func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string)) error {
@@ -154,7 +154,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case repoDoneMsg:
 		if msg.index >= 0 && msg.index < len(model.results) && model.results[msg.index].Loading {
-			model.results[msg.index] = msg.result
+			model.results[msg.index] = ui.RepoResult{
+				Repo:   msg.result.Repo,
+				Status: msg.result.Status,
+				Failed: msg.result.Failed,
+				Stale:  msg.result.Stale,
+				Sync:   msg.result.Sync,
+			}
 		}
 		model.refresh()
 		return model, model.nextInspectCommands()
