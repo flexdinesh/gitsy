@@ -14,15 +14,26 @@ go build -o bin/gitsy ./cmd/gitsy
 go install ./cmd/gitsy
 ```
 
+## Install the dev version
+
+For the latest tested changes on `main`:
+
+```bash
+go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
+```
+
 ## Skipping Actions
 
-`[skip ci]` can be used as a temporary escape hatch when a commit should skip
-GitHub Actions, such as a docs-only change that should not run release
-automation.
+Include `[skip ci]` in the commit message pushed to `main` (including the merge
+or squash commit) to skip the entire **CI** workflow, including tests and the
+`dev` update. Manual stable releases are unaffected.
 
 ```bash
 git commit -m "docs: update readme [skip ci]"
 ```
+
+On pull requests, skipped required checks remain pending and can block merging.
+See [GitHub's skip instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs).
 
 ## Trying the TUI locally
 

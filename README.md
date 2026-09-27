@@ -14,12 +14,6 @@ brew install flexdinesh/tap/gitsy
 go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 ```
 
-For the latest tested changes on `main`:
-
-```bash
-go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
-```
-
 ## Usage
 
 ```bash
