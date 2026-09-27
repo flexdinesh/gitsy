@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
 )
 
@@ -18,8 +19,8 @@ func TestExceptionSummaries(t *testing.T) {
 		{"stale", RepoResult{Stale: true}, "⚠ stale", "yellow"},
 		{"behind", RepoResult{Status: status.Parse("## main...origin/main [behind 2]")}, "main ↓2", "yellow"},
 		{"conflict", RepoResult{Status: status.Parse("## main\nUU file.go")}, "main • 1 conflict", "red"},
-		{"sync failed", RepoResult{Sync: &SyncOutcome{Kind: "failed"}}, "⚠ sync failed", "red"},
-		{"status failed after sync", RepoResult{Failed: true, Sync: &SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ status failed", "red"},
+		{"sync failed", RepoResult{Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed", "red"},
+		{"status failed after sync", RepoResult{Failed: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ status failed", "red"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			row := RowsForRepo(test.result)[0]
@@ -42,15 +43,29 @@ func TestCompactSummaryPrioritizesState(t *testing.T) {
 		{"changes", RepoResult{Status: status.Parse("## long-feature-branch\n M one.go\n?? two.go")}, "2 files · long-feature-branch"},
 		{"conflict", RepoResult{Status: status.Parse("## long-feature-branch\nUU one.go")}, "1 conflict · long-feature-branch"},
 		{"behind", RepoResult{Status: status.Parse("## long-feature-branch...origin/main [ahead 1, behind 3]")}, "↓3 · ↑1 · long-feature-branch"},
-		{"synced", RepoResult{Sync: &SyncOutcome{Kind: "synced", Pulled: 2}}, "synced ↓2"},
-		{"stale sync", RepoResult{Stale: true, Sync: &SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ stale · synced ↓2"},
-		{"failed sync", RepoResult{Sync: &SyncOutcome{Kind: "failed"}}, "⚠ sync failed"},
+		{"synced", RepoResult{Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "synced ↓2"},
+		{"stale sync", RepoResult{Stale: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ stale · synced ↓2"},
+		{"failed sync", RepoResult{Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed"},
 		{"failed", RepoResult{Failed: true}, "⚠ status failed"},
 		{"loading", RepoResult{Loading: true}, "checking status…"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := CompactSummary(test.result); got != test.want {
 				t.Fatalf("got %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAllConflictsKeepTheirLabels(t *testing.T) {
+	for _, code := range []string{"DD", "AU", "UD", "UA", "DU", "AA", "UU"} {
+		t.Run(code, func(t *testing.T) {
+			rows := RowsForRepo(RepoResult{Status: status.Parse("## main\n" + code + " file.go")})
+			if len(rows) != 2 || rows[0].Text != "main • 1 conflict" || rows[1].Text != "  ! conflict file.go" {
+				t.Fatalf("conflict must remain explicit in summary and detail: %#v", rows)
+			}
+			if rows[1].Tone != "red" || !rows[1].Bold || rows[1].Dim {
+				t.Fatalf("conflict detail must remain emphasized: %#v", rows[1])
 			}
 		})
 	}

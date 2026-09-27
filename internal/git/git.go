@@ -75,7 +75,7 @@ func ShortStatusContext(ctx context.Context, repoPath string) Result {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	result := RunContext(ctx, repoPath, "status", "--short", "--branch", "--ahead-behind")
+	result := RunContext(ctx, repoPath, "status", "--porcelain=v1", "--branch", "--ahead-behind", "--untracked-files=normal")
 	if !result.OK && ctx.Err() == context.DeadlineExceeded {
 		result.Stderr = "git status timed out"
 	}
@@ -87,7 +87,7 @@ func WorktreeList(repoPath string) Result {
 }
 
 func WorktreeListContext(ctx context.Context, repoPath string) Result {
-	return RunContext(ctx, repoPath, "worktree", "list", "--porcelain")
+	return RunContext(ctx, repoPath, "worktree", "list", "--porcelain", "-z")
 }
 
 func FastForward(repoPath string) Result {
@@ -95,7 +95,15 @@ func FastForward(repoPath string) Result {
 }
 
 func FastForwardContext(ctx context.Context, repoPath string) Result {
-	return RunContext(ctx, repoPath, "merge", "--ff-only")
+	return FastForwardToContext(ctx, repoPath, "@{upstream}")
+}
+
+func FastForwardToContext(ctx context.Context, repoPath, commit string) Result {
+	return RunContext(ctx, repoPath, "merge", "--ff-only", "--no-squash", commit)
+}
+
+func ResolveCommitContext(ctx context.Context, repoPath, revision string) Result {
+	return RunContext(ctx, repoPath, "rev-parse", "--verify", revision+"^{commit}")
 }
 
 func FetchAll(repoPath string, timeout time.Duration) Result {
@@ -125,7 +133,7 @@ func FetchAllContext(ctx context.Context, repoPath string, timeout time.Duration
 
 func ParseWorktreePaths(porcelain string) []string {
 	paths := []string{}
-	for _, line := range strings.Split(strings.ReplaceAll(porcelain, "\r\n", "\n"), "\n") {
+	for _, line := range strings.Split(porcelain, "\x00") {
 		if strings.HasPrefix(line, "worktree ") {
 			paths = append(paths, strings.TrimPrefix(line, "worktree "))
 		}

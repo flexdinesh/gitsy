@@ -83,21 +83,32 @@ var IgnoredDirNames = map[string]struct{}{
 	"log":               {},
 }
 
-func FindGitCandidates(cwd string, maxDepth int, ignoredDirNames map[string]struct{}) []string {
+func FindGitCandidates(cwd string, maxDepth int, ignoredDirNames map[string]struct{}) ([]string, error) {
+	return findGitCandidates(context.Background(), cwd, maxDepth, ignoredDirNames, func(string) {})
+}
+
+func findGitCandidates(ctx context.Context, cwd string, maxDepth int, ignoredDirNames map[string]struct{}, warn func(string)) ([]string, error) {
 	root, err := filepath.Abs(cwd)
 	if err != nil {
-		root = filepath.Clean(cwd)
+		return nil, fmt.Errorf("resolve scan directory: %w", err)
 	}
 	if ignoredDirNames == nil {
 		ignoredDirNames = IgnoredDirNames
 	}
 
 	candidates := map[string]struct{}{}
-	var walk func(directory string, depth int)
-	walk = func(directory string, depth int) {
+	var walk func(directory string, depth int) error
+	walk = func(directory string, depth int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		entries, err := os.ReadDir(directory)
 		if err != nil {
-			return
+			if depth == 0 {
+				return fmt.Errorf("read scan directory %s: %w", directory, err)
+			}
+			warn(fmt.Sprintf("Skipping inaccessible directory %s: %s", directory, err))
+			return nil
 		}
 
 		for _, entry := range entries {
@@ -117,12 +128,17 @@ func FindGitCandidates(cwd string, maxDepth int, ignoredDirNames map[string]stru
 				continue
 			}
 			if depth < maxDepth {
-				walk(entryPath, depth+1)
+				if err := walk(entryPath, depth+1); err != nil {
+					return err
+				}
 			}
 		}
+		return nil
 	}
 
-	walk(root, 0)
+	if err := walk(root, 0); err != nil {
+		return nil, err
+	}
 
 	result := make([]string, 0, len(candidates))
 	for candidate := range candidates {
@@ -131,23 +147,33 @@ func FindGitCandidates(cwd string, maxDepth int, ignoredDirNames map[string]stru
 	sort.Slice(result, func(i, j int) bool {
 		return DisplayNameForPath(root, result[i]) < DisplayNameForPath(root, result[j])
 	})
-	return result
+	return result, nil
 }
 
-func Discover(options Options) []Repo {
+func Discover(options Options) ([]Repo, error) {
 	return DiscoverContext(context.Background(), options)
 }
 
-func DiscoverContext(ctx context.Context, options Options) []Repo {
+func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	cwd, err := filepath.Abs(options.Cwd)
 	if err != nil {
-		cwd = filepath.Clean(options.Cwd)
+		return nil, fmt.Errorf("resolve scan directory: %w", err)
 	}
 
 	warn := createWarner(options)
 	reposByRealPath := map[string]Repo{}
 
-	for _, candidate := range FindGitCandidates(cwd, options.MaxDepth, nil) {
+	candidates, err := findGitCandidates(ctx, cwd, options.MaxDepth, nil, warn)
+	if err != nil {
+		return nil, err
+	}
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		verified, ok := verifyRepo(ctx, candidate, cwd, SourceScan, warn)
 		if ok {
 			reposByRealPath[verified.RealPath] = verified
@@ -160,6 +186,9 @@ func DiscoverContext(ctx context.Context, options Options) []Repo {
 	}
 
 	for _, repo := range scannedRepos {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		result := git.WorktreeListContext(ctx, repo.Path)
 		if !result.OK {
 			warn(fmt.Sprintf("Failed to list worktrees for %s: %s", repo.DisplayName, gitError(result)))
@@ -180,10 +209,13 @@ func DiscoverContext(ctx context.Context, options Options) []Repo {
 	for _, repo := range reposByRealPath {
 		repos = append(repos, repo)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	sort.Slice(repos, func(i, j int) bool {
 		return repos[i].DisplayName < repos[j].DisplayName
 	})
-	return repos
+	return repos, nil
 }
 
 func DisplayNameForPath(cwd string, repoPath string) string {
@@ -202,10 +234,14 @@ func DisplayNameForPath(cwd string, repoPath string) string {
 			return "."
 		}
 		if !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && relative != ".." && !filepath.IsAbs(relative) {
-			return relative
+			return displayPath(relative)
 		}
 	}
-	return absoluteRepo
+	return displayPath(absoluteRepo)
+}
+
+func displayPath(path string) string {
+	return strings.NewReplacer("\r", "\\r", "\n", "\\n", "\t", "\\t").Replace(path)
 }
 
 func verifyRepo(ctx context.Context, repoPath string, cwd string, source RepoSource, warn func(message string)) (Repo, bool) {
@@ -235,7 +271,7 @@ func verifyRepo(ctx context.Context, repoPath string, cwd string, source RepoSou
 		return Repo{}, false
 	}
 
-	topLevelPath := strings.TrimSpace(topLevel.Stdout)
+	topLevelPath := strings.TrimSuffix(topLevel.Stdout, "\n")
 	topLevelRealPath, err := filepath.EvalSymlinks(topLevelPath)
 	if err != nil {
 		warn(fmt.Sprintf("Skipping repo %s with inaccessible top-level %s: %s", DisplayNameForPath(cwd, repoPath), topLevelPath, err.Error()))

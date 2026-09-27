@@ -1,9 +1,25 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRunRejectsInvalidScanRoots(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{filepath.Join(dir, "missing"), file} {
+		err := run([]string{"--dir", root, "--no-fetch"})
+		if err == nil || !strings.Contains(err.Error(), "read scan directory") {
+			t.Fatalf("invalid root must fail before starting the TUI: %v", err)
+		}
+	}
+}
 
 func TestRunReturnsUsageErrorForInvalidArgs(t *testing.T) {
 	err := run([]string{"--max-depth", "0"})

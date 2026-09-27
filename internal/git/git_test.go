@@ -6,9 +6,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/flexdinesh/gitsy/internal/status"
 )
 
 func TestRunContextReturnsCanceledResult(t *testing.T) {
@@ -22,6 +25,45 @@ func TestRunContextReturnsCanceledResult(t *testing.T) {
 	}
 	if !strings.Contains(result.Stderr, context.Canceled.Error()) {
 		t.Fatalf("expected canceled stderr, got %q", result.Stderr)
+	}
+}
+
+func TestShortStatusIgnoresUserFormattingAndIncludesUntrackedFiles(t *testing.T) {
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	repo := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "initial"},
+		{"config", "color.status", "always"},
+		{"config", "status.showUntrackedFiles", "no"},
+	} {
+		if result := Run(repo, args...); !result.OK {
+			t.Fatal(result.Stderr)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "file.go"), []byte("untracked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := ShortStatus(repo)
+	if !result.OK {
+		t.Fatal(result.Stderr)
+	}
+	parsed := status.Parse(result.Stdout)
+	if strings.Contains(result.Stdout, "\x1b") || parsed.Branch == nil || parsed.Branch.Name != "main" ||
+		len(parsed.Items) != 1 || parsed.Items[0].Category != status.Untracked || parsed.Items[0].Path != "file.go" {
+		t.Fatalf("expected plain, accurate status despite user configuration: %q", result.Stdout)
+	}
+}
+
+func TestParseWorktreePathsPreservesSpecialCharacters(t *testing.T) {
+	want := []string{"/repo/main", "/repo/日本語\r\nwith\ttabs ", "/repo/trailing\n"}
+	porcelain := ""
+	for _, path := range want {
+		porcelain += "worktree " + path + "\x00HEAD abc123\x00branch refs/heads/main\x00\x00"
+	}
+	if got := ParseWorktreePaths(porcelain); !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected paths %#v, got %#v", want, got)
 	}
 }
 

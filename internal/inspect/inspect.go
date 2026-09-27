@@ -10,15 +10,35 @@ import (
 	"github.com/flexdinesh/gitsy/internal/discover"
 	"github.com/flexdinesh/gitsy/internal/git"
 	"github.com/flexdinesh/gitsy/internal/status"
-	"github.com/flexdinesh/gitsy/internal/ui"
 )
 
-func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []ui.RepoResult {
+type SyncOutcome struct {
+	Kind   string
+	Pulled int
+	Reason string
+}
+
+type Result struct {
+	Repo   discover.Repo
+	Status status.Parsed
+	Failed bool
+	Stale  bool
+	Sync   *SyncOutcome
+}
+
+type gitCommands struct {
+	fetch   func(context.Context, string, time.Duration) git.Result
+	status  func(context.Context, string) git.Result
+	merge   func(context.Context, string, string) git.Result
+	resolve func(context.Context, string, string) git.Result
+}
+
+func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
 	return ReposContext(context.Background(), repos, noFetch, syncRepos, warn)
 }
 
-func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []ui.RepoResult {
-	results := make([]ui.RepoResult, len(repos))
+func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
+	results := make([]Result, len(repos))
 	var waitGroup sync.WaitGroup
 
 	for index, repo := range repos {
@@ -33,14 +53,26 @@ func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, sync
 	return results
 }
 
-func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) ui.RepoResult {
+func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) Result {
 	return RepoContext(context.Background(), repo, noFetch, syncRepo, warn)
 }
 
-func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) ui.RepoResult {
+func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) Result {
+	return repoContext(ctx, repo, noFetch, syncRepo, warn, gitCommands{
+		fetch:   git.FetchAllContext,
+		status:  git.ShortStatusContext,
+		merge:   git.FastForwardToContext,
+		resolve: git.ResolveCommitContext,
+	})
+}
+
+func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string), commands gitCommands) Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	stale := false
-	if !noFetch {
-		fetchResult := git.FetchAllContext(ctx, repo.Path, 30*time.Second)
+	if !noFetch || syncRepo {
+		fetchResult := commands.fetch(ctx, repo.Path, 30*time.Second)
 		if !fetchResult.OK {
 			stale = true
 			if warn != nil {
@@ -49,12 +81,12 @@ func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 		}
 	}
 
-	statusResult := git.ShortStatusContext(ctx, repo.Path)
+	statusResult := commands.status(ctx, repo.Path)
 	if !statusResult.OK {
 		if warn != nil {
 			warn(fmt.Sprintf("Failed to read status for %s: %s", repo.DisplayName, gitError(statusResult)))
 		}
-		return ui.RepoResult{
+		return Result{
 			Repo:   repo,
 			Status: status.Parse(""),
 			Failed: true,
@@ -63,7 +95,7 @@ func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 	}
 
 	parsedStatus := status.Parse(statusResult.Stdout)
-	result := ui.RepoResult{
+	result := Result{
 		Repo:   repo,
 		Status: parsedStatus,
 		Stale:  stale,
@@ -71,27 +103,45 @@ func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 
 	if syncRepo && status.CanFastForward(parsedStatus) {
 		pulled := parsedStatus.Branch.Behind
-		ffResult := git.FastForwardContext(ctx, repo.Path)
-		if !ffResult.OK {
+		syncFailed := func(reason string) Result {
 			if warn != nil {
-				warn(fmt.Sprintf("Sync failed for %s: %s", repo.DisplayName, gitError(ffResult)))
+				warn(fmt.Sprintf("Sync failed for %s: %s", repo.DisplayName, reason))
 			}
-			result.Sync = &ui.SyncOutcome{Kind: "failed", Reason: strings.TrimSpace(ffResult.Stderr)}
+			result.Sync = &SyncOutcome{Kind: "failed", Reason: reason}
 			return result
 		}
+		target := commands.resolve(ctx, repo.Path, "@{upstream}")
+		if !target.OK {
+			return syncFailed(gitError(target))
+		}
+		commit := strings.TrimSpace(target.Stdout)
+		if commit == "" {
+			return syncFailed("upstream commit is unavailable")
+		}
+		ffResult := commands.merge(ctx, repo.Path, commit)
+		if !ffResult.OK {
+			return syncFailed(gitError(ffResult))
+		}
+		head := commands.resolve(ctx, repo.Path, "HEAD")
+		if !head.OK {
+			return syncFailed(gitError(head))
+		}
+		if strings.TrimSpace(head.Stdout) != commit {
+			return syncFailed("HEAD did not reach the upstream commit")
+		}
 
-		postStatus := git.ShortStatusContext(ctx, repo.Path)
+		postStatus := commands.status(ctx, repo.Path)
 		if !postStatus.OK {
 			if warn != nil {
 				warn(fmt.Sprintf("Failed to read status after sync for %s: %s", repo.DisplayName, gitError(postStatus)))
 			}
 			result.Failed = true
-			result.Sync = &ui.SyncOutcome{Kind: "synced", Pulled: pulled}
+			result.Sync = &SyncOutcome{Kind: "synced", Pulled: pulled}
 			return result
 		}
 
 		result.Status = status.Parse(postStatus.Stdout)
-		result.Sync = &ui.SyncOutcome{Kind: "synced", Pulled: pulled}
+		result.Sync = &SyncOutcome{Kind: "synced", Pulled: pulled}
 	}
 
 	return result
