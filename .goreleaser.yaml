@@ -2,6 +2,11 @@ version: 2
 
 project_name: gitsy
 
+release:
+  draft: false
+  prerelease: false
+  make_latest: true
+
 before:
   hooks:
     - go mod tidy

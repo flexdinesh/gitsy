@@ -1,16 +1,18 @@
 # Releases
 
-Releases are SemVer Git tags on `main`.
+Stable releases are SemVer Git tags on `main`, published only by the manual
+**Release** workflow. Every push to `main` runs CI and updates the `dev` branch
+after tests and the build pass.
 
-## Release
+## Stable releases
 
 Required repository secret:
 
 - `HOMEBREW_TAP_TOKEN`: fine-grained token with contents write and pull request write access to `flexdinesh/homebrew-tap`.
 
 1. Merge release-ready code to `main`.
-2. Run the **Release** workflow. It requires no inputs.
-3. The workflow selects the next patch version, verifies the repository, then publishes the tag and GitHub Release with GoReleaser.
+2. Run the **Release** workflow. It requires no inputs and checks out the latest `main` when the job starts.
+3. The workflow selects the next patch version, verifies the repository, then publishes the tag and a stable GitHub Release marked **Latest** with GoReleaser.
 4. It generates `Formula/gitsy.rb` and opens or updates a pull request against `flexdinesh/homebrew-tap`.
 5. Merge the tap pull request after its Homebrew checks pass.
 
@@ -27,6 +29,27 @@ The tap branch is deterministic per version, such as `gitsy-v0.1.2`. Rerunning a
 
 The tap repository owns Homebrew style, strict audit, install, and formula test checks before merge.
 
+## Development releases
+
+The **CI** workflow tests and builds every push to `main`, then creates or
+fast-forwards `dev` to that tested commit. Pull requests only run checks.
+Publishing is serialized; older runs skip publishing if `main` has advanced.
+Failed checks leave `dev` at its last published commit.
+
+`dev` is an automatically maintained install channel, not a development branch
+for direct commits. Its updates create no SemVer tags or GitHub Releases, so
+they do not change the stable GitHub **Latest** release or Go's `@latest`.
+No separate snapshot build or publishing token is needed; CI uses `GITHUB_TOKEN`
+with contents write permission for the publishing job.
+
+`go install github.com/flexdinesh/gitsy/cmd/gitsy@dev` resolves the branch to a
+Go pseudo-version, or a stable version if that commit also has a release tag.
+Go module proxies may briefly cache branch lookups. To bypass that cache:
+
+```bash
+GOPROXY=direct go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
+```
+
 ## Version series
 
 `.release-version` contains the active `major.minor` release series. For example, `0.1` selects `v0.1.2` when `v0.1.1` is the latest release, then `v0.1.3`, and so on. A rerun from the same commit reuses its existing tag and release.
@@ -42,14 +65,15 @@ go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 # Specific release.
 go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.1.0
 
-# Development release.
+# Latest tested main (available after the first successful main CI run).
 go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
 ```
 
 ## Version Output
 
-Local builds print a development version. Release builds get the version from
-the release tag through GoReleaser linker flags.
+Go installs report the resolved module version: a stable tag or a development
+pseudo-version. Downloaded release binaries get the version from the release
+tag through GoReleaser linker flags.
 
 ```bash
 gitsy --version

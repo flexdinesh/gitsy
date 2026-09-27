@@ -14,6 +14,12 @@ brew install flexdinesh/tap/gitsy
 go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 ```
 
+For the latest tested changes on `main`:
+
+```bash
+go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
+```
+
 ## Usage
 
 ```bash
@@ -52,4 +58,5 @@ See [docs/development.md](docs/development.md).
 
 ## Releases
 
-Releases are created from `main`. See [docs/release.md](docs/release.md).
+Stable releases are published manually from `main`; `dev` updates automatically
+after CI passes on `main`. See [docs/release.md](docs/release.md).
