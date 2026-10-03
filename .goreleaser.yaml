@@ -9,7 +9,7 @@ release:
 
 before:
   hooks:
-    - go mod tidy
+    - mise run tidy:check
 
 builds:
   - id: gitsy

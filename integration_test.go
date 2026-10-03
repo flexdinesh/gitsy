@@ -5,13 +5,78 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/flexdinesh/gitsy/internal/args"
 	"github.com/flexdinesh/gitsy/internal/discover"
 	"github.com/flexdinesh/gitsy/internal/git"
 	"github.com/flexdinesh/gitsy/internal/status"
 )
+
+func TestDiscoversMultipleDirectoriesAndExternalWorktrees(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	one := filepath.Join(home, "org-one")
+	two := filepath.Join(home, "org-two")
+	repo := filepath.Join(one, "project")
+	deep := filepath.Join(one, "nested", "deep")
+	worktree := filepath.Join(dir, "outside", "linked")
+	for _, path := range []string{one, repo, filepath.Join(two, "project"), deep, filepath.Join(home, "unselected")} {
+		mkdirAll(t, path)
+		runGit(t, path, "init", "-q", "-b", "main")
+	}
+	configureGitUser(t, repo)
+	runGit(t, repo, "commit", "--allow-empty", "-qm", "initial")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "linked", worktree)
+	alias := filepath.Join(dir, "alias")
+	if err := os.Symlink(one, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		argv []string
+		deep bool
+	}{
+		{name: "absolute", argv: []string{"--dir", one, "--dir", two, "--max-depth", "1"}},
+		{name: "relative", argv: []string{"--dir", "org-one", "--dir=org-two", "--max-depth=1"}},
+		{name: "reversed", argv: []string{"--dir", two, "--dir", one, "--max-depth", "1"}},
+		{name: "repeated", argv: []string{"--dir", one, "--dir", two, "--dir", one, "--max-depth", "1"}},
+		{name: "overlapping", argv: []string{"--dir", one, "--dir", two, "--dir", repo, "--max-depth", "1"}},
+		{name: "symlink", argv: []string{"--dir", one, "--dir", two, "--dir", alias, "--max-depth", "1"}},
+		{name: "deeper", argv: []string{"--dir", one, "--dir", two, "--max-depth", "2"}, deep: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed := args.Parse(test.argv, home)
+			if !parsed.OK {
+				t.Fatal(parsed.Err)
+			}
+			repos, err := discover.Discover(discover.Options{Cwd: home, Dirs: parsed.Options.Dirs, MaxDepth: parsed.Options.MaxDepth})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{worktree, "org-one/project", "org-two/project"}
+			if test.deep {
+				want = append(want, "org-one/nested/deep")
+			}
+			sort.Strings(want)
+			names := []string{}
+			for _, found := range repos {
+				names = append(names, found.DisplayName)
+				if found.Path == worktree && found.Source != discover.SourceWorktree {
+					t.Fatalf("external worktree must come from worktree discovery: %+v", found)
+				}
+			}
+			if !reflect.DeepEqual(names, want) {
+				t.Fatalf("expected selected repos and external worktree %v, got %v", want, names)
+			}
+		})
+	}
+}
 
 func TestDiscoversCleanChildReposAndFiltersStatusByChangedFlag(t *testing.T) {
 	requireGit(t)

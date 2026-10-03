@@ -14,9 +14,15 @@ func TestRunRejectsInvalidScanRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, root := range []string{filepath.Join(dir, "missing"), file} {
-		err := run([]string{"--dir", root, "--no-fetch"})
-		if err == nil || !strings.Contains(err.Error(), "read scan directory") {
-			t.Fatalf("invalid root must fail before starting the TUI: %v", err)
+		for _, argv := range [][]string{
+			{"--dir", root, "--no-fetch"},
+			{"--dir", root, "--dir", dir, "--no-fetch"},
+			{"--dir", dir, "--dir", root, "--no-fetch"},
+		} {
+			err := run(argv)
+			if err == nil || !strings.Contains(err.Error(), "read scan directory") {
+				t.Fatalf("invalid root must fail before starting the TUI: args=%v err=%v", argv, err)
+			}
 		}
 	}
 }

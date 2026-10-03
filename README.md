@@ -29,6 +29,9 @@ gitsy --max-depth 5
 # Start scanning from a specific directory instead of the current directory.
 gitsy --dir ~/workspace
 
+# Scan multiple directories and include their repositories' linked worktrees.
+gitsy --dir ~/workspace/org-one --dir ~/workspace/org-two
+
 # Skip fetching upstream changes and use local status only.
 gitsy --no-fetch
 
@@ -46,7 +49,20 @@ Use `↑/↓` or `j/k` to select repositories, `Tab` to toggle file details,
 `PgUp/PgDn` or the mouse wheel to scroll, and `q` to quit. Wide terminals
 show context for the selected repository. Colors adapt to light and dark themes.
 
+With `--dir`, only the supplied directories are scanned. `--max-depth` applies
+to each directory; linked worktrees are included wherever they live. Relative
+paths resolve from the current directory.
+
 ## Development
+
+Project commands run through mise:
+
+```bash
+mise trust
+mise run setup
+mise run check
+mise run build
+```
 
 See [docs/development.md](docs/development.md).
 
