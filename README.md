@@ -68,5 +68,5 @@ See [docs/development.md](docs/development.md).
 
 ## Releases
 
-Stable releases are published manually from `main`; `dev` updates automatically
-after CI passes on `main`. See [docs/release.md](docs/release.md).
+Stable releases are published manually from `main`; development versions install
+directly from `main`. See [docs/release.md](docs/release.md).

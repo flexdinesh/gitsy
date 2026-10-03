@@ -1,8 +1,8 @@
 # Releases
 
 Stable releases are SemVer Git tags on `main`, published only by the manual
-**Release** workflow. Every push to `main` runs CI and updates the `dev` branch
-after formatting and the build pass.
+**Release** workflow. Every push to `main` runs lightweight CI; development
+versions install directly from `main`.
 
 ## Stable releases
 
@@ -31,27 +31,22 @@ The tap repository owns Homebrew style, strict audit, install, and formula test 
 
 ## Development releases
 
-The **CI** workflow checks formatting and builds every push to `main`, then
-creates or fast-forwards `dev` to that checked commit. Pull requests only run
-checks. Full validation runs locally in the pre-push hook; manual stable
-releases also run tests, vet, and build checks.
+The **CI** workflow checks formatting and builds pushes to `main` and pull
+requests in one read-only job. Full validation runs locally in the pre-push
+hook; manual stable releases retain full validation.
 Both workflows use the tools and tasks in `mise.toml`: routine CI runs `ci`,
 and stable releases run `release:check` before the `release` publishing task.
-Publishing is serialized; older runs skip publishing if `main` has advanced.
-Failed checks leave `dev` at its last published commit.
 
-`dev` is an automatically maintained install channel, not a development branch
-for direct commits. Its updates create no SemVer tags or GitHub Releases, so
-they do not change the stable GitHub **Latest** release or Go's `@latest`.
-No separate snapshot build or publishing token is needed; CI uses `GITHUB_TOKEN`
-with contents write permission for the publishing job.
+Development installs use `main` directly, without a separate branch or
+publishing job. They do not wait for CI or change the stable GitHub **Latest**
+release or Go's `@latest`.
 
-`go install github.com/flexdinesh/gitsy/cmd/gitsy@dev` resolves the branch to a
+`go install github.com/flexdinesh/gitsy/cmd/gitsy@main` resolves the branch to a
 Go pseudo-version, or a stable version if that commit also has a release tag.
 Go module proxies may briefly cache branch lookups. To bypass that cache:
 
 ```bash
-GOPROXY=direct go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
+GOPROXY=direct go install github.com/flexdinesh/gitsy/cmd/gitsy@main
 ```
 
 ## Version series
@@ -69,8 +64,8 @@ go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 # Specific release.
 go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.1.0
 
-# Latest CI-checked main (available after the first successful main CI run).
-go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
+# Latest development version from main.
+go install github.com/flexdinesh/gitsy/cmd/gitsy@main
 ```
 
 ## Version Output

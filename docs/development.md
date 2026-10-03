@@ -61,23 +61,24 @@ apply automatically. Go and a C compiler are required for race detection.
 Hooks can be bypassed with
 `git push --no-verify`.
 
-Routine CI checks formatting and builds all packages; passing pushes to `main`
-still update `dev`. The existing **Test** check name is preserved for branch
-protection. Manual stable releases retain tests, vet, and build validation.
+Routine CI checks formatting and builds all packages in one read-only job.
+It installs only Go, caches dependencies and builds, and cancels superseded runs
+for the same event and ref. The existing **Test** check name is preserved for
+branch protection. Manual stable releases retain full validation.
 
 ## Install the dev version
 
-For the latest CI-checked changes on `main`:
+For the latest changes on `main`, without waiting for CI:
 
 ```bash
-go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
+go install github.com/flexdinesh/gitsy/cmd/gitsy@main
 ```
 
 ## Skipping Actions
 
 Include `[skip ci]` in the commit message pushed to `main` (including the merge
-or squash commit) to skip the entire **CI** workflow, including checks and the
-`dev` update. Manual stable releases are unaffected.
+or squash commit) to skip the **CI** workflow. Manual stable releases are
+unaffected.
 
 ```bash
 git commit -m "docs: update readme [skip ci]"
