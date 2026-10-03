@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -31,30 +32,35 @@ type rowEntry struct {
 	tone      string
 	bold      bool
 	dim       bool
-	repoIndex int // -1 for dividers and empty states
+	repoIndex int // appearance index; -1 for group headers, dividers and empty states
+	group     string
+	groupSize int
 }
 
-// Model holds a single viewport over the repo table: selected is the
-// repo index, offset is the first visible body row. Detail rows never
+// Model holds unique results and a viewport over repo appearances: selected
+// is the appearance index, offset the first body row. Detail rows never
 // own selection; scrolling the viewport re-points selection at the
 // first visible repo.
 type Model struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	results  []ui.RepoResult
-	noFetch  bool
-	sync     bool
-	warn     func(string)
-	spin     spinner.Model
-	width    int
-	height   int
-	selected int
-	expanded bool
-	offset   int
-	capacity int
-	rows     []rowEntry
-	next     int
-	inspect  inspector
+	ctx         context.Context
+	cancel      context.CancelFunc
+	results     []ui.RepoResult
+	groups      []discover.Group
+	home        string
+	noFetch     bool
+	sync        bool
+	warn        func(string)
+	spin        spinner.Model
+	width       int
+	height      int
+	selected    int
+	expanded    bool
+	browseEmpty bool
+	offset      int
+	capacity    int
+	rows        []rowEntry
+	next        int
+	inspect     inspector
 
 	tableWidth int
 	tableOuter int
@@ -68,9 +74,11 @@ type repoDoneMsg struct {
 	result inspect.Result
 }
 
-func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string)) error {
+func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, workspace discover.Workspace, noFetch bool, syncRepos bool, warn func(string)) error {
+	model := newModel(ctx, cancel, workspace.Repos, noFetch, syncRepos, warn, inspect.RepoContext)
+	model.groups = workspace.Groups
 	program := tea.NewProgram(
-		newModel(ctx, cancel, repos, noFetch, syncRepos, warn, inspect.RepoContext),
+		model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 		tea.WithOutput(output),
@@ -97,11 +105,13 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 
 	spin := spinner.New()
 	spin.Spinner = spinner.Dot
+	home, _ := os.UserHomeDir()
 
 	return Model{
 		ctx:      ctx,
 		cancel:   cancel,
 		results:  results,
+		home:     home,
 		noFetch:  noFetch,
 		sync:     syncRepos,
 		warn:     warn,
@@ -140,6 +150,11 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.width = msg.Width
 		model.height = msg.Height
 		model.refresh()
+		if model.browseEmpty {
+			if index := firstRepoAt(model.visibleRows(), 0, -1); index >= 0 {
+				model.selectRepo(index)
+			}
+		}
 		return model, nil
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress {
@@ -193,11 +208,11 @@ func (model Model) View() string {
 
 	tableOuter, infoOuter, infoShown := layoutWidths(width)
 	tableWidth := max(1, tableOuter-2-padX*2)
-	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.results)
+	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.displayResults())
 	cols := [3]int{numberWidth, repoWidth, statusWidth}
 	entries := model.tableRows()
 	capacity := tableViewportHeight(height)
-	offset := clamp(model.offset, 0, max(0, len(entries)-capacity))
+	offset := clamp(model.offset, 0, maxViewportOffset(entries, capacity))
 
 	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected))
 	middle := tableBox
@@ -222,11 +237,24 @@ func tableViewportHeight(height int) int {
 }
 
 func (model Model) compactView(width, height int) string {
-	lines := []string{ui.Title(model.results, len(model.results))}
-	if len(model.results) == 0 {
-		lines = append(lines, ui.EmptyMessage(0))
+	lines := []string{model.title()}
+	if len(model.results) == 0 || model.browseEmpty {
+		message := ui.EmptyMessage(0)
+		if model.browseEmpty && len(model.visibleRows()) > 0 {
+			group := model.visibleRows()[0]
+			lines = append(lines, group.group)
+			if group.groupSize > 0 {
+				message = fmt.Sprintf("%d repos", group.groupSize)
+			}
+		} else if len(model.groups) > 0 {
+			lines = append(lines, displayGroupPath(model.groups[0].Path, model.home))
+		}
+		lines = append(lines, message)
 	} else {
-		result := model.results[clamp(model.selected, 0, len(model.results)-1)]
+		result := model.selectedResult()
+		if group := model.selectedGroup(); group != "" {
+			lines = append(lines, displayGroupPath(group, model.home))
+		}
 		lines = append(lines, iconSelected+" "+result.Repo.DisplayName)
 		for _, row := range ui.RowsForRepo(result) {
 			lines = append(lines, strings.TrimSpace(row.Text))
@@ -304,6 +332,7 @@ func (model *Model) navigate(message tea.KeyMsg) bool {
 	switch pressed {
 	case "tab":
 		model.expanded = !model.expanded
+		model.browseEmpty = false
 		model.offset = 0
 		model.refresh()
 	case "up", "k":
@@ -321,7 +350,7 @@ func (model *Model) navigate(message tea.KeyMsg) bool {
 	case "home", "g":
 		model.selectRepo(0)
 	case "end", "G":
-		model.selectRepo(len(model.results) - 1)
+		model.selectRepo(len(model.displayResults()) - 1)
 	default:
 		return false
 	}
@@ -344,7 +373,8 @@ func (model *Model) selectRepo(index int) {
 	if len(model.results) == 0 {
 		return
 	}
-	model.selected = clamp(index, 0, len(model.results)-1)
+	model.selected = clamp(index, 0, len(model.displayResults())-1)
+	model.browseEmpty = false
 	model.refresh()
 }
 
@@ -354,9 +384,13 @@ func (model *Model) scrollViewport(delta int) {
 	if len(model.rows) == 0 || delta == 0 {
 		return
 	}
-	maxOffset := max(0, len(model.rows)-model.capacity)
+	maxOffset := maxViewportOffset(model.rows, model.capacity)
 	model.offset = clamp(model.offset+delta, 0, maxOffset)
-	model.selected = firstRepoAt(model.rows, model.offset, model.selected)
+	visibleRepo := firstRepoAt(model.visibleRows(), 0, -1)
+	model.browseEmpty = visibleRepo < 0
+	if visibleRepo >= 0 {
+		model.selected = visibleRepo
+	}
 	model.refresh()
 }
 
@@ -374,12 +408,12 @@ func (model *Model) updateTableWithSize(width int, height int) {
 	model.tableOuter, model.infoOuter, model.infoShown = layoutWidths(width)
 	tableWidth := max(1, model.tableOuter-2-padX*2)
 	model.tableWidth = tableWidth
-	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.results)
+	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.displayResults())
 	model.colWidths = [3]int{numberWidth, repoWidth, statusWidth}
 	model.rows = model.tableRows()
 	model.capacity = max(1, height)
 	if len(model.results) > 0 {
-		model.selected = clamp(model.selected, 0, len(model.results)-1)
+		model.selected = clamp(model.selected, 0, len(model.displayResults())-1)
 	} else {
 		model.selected = 0
 	}
@@ -391,9 +425,13 @@ func (model *Model) ensureSelectedVisible() {
 		model.offset = 0
 		return
 	}
+	if model.browseEmpty {
+		model.offset = clamp(model.offset, 0, maxViewportOffset(model.rows, model.capacity))
+		return
+	}
 	first := firstRowOf(model.rows, model.selected)
 	if first < 0 {
-		model.offset = clamp(model.offset, 0, max(0, len(model.rows)-model.capacity))
+		model.offset = clamp(model.offset, 0, maxViewportOffset(model.rows, model.capacity))
 		return
 	}
 	last := first
@@ -408,17 +446,19 @@ func (model *Model) ensureSelectedVisible() {
 	}
 	// Keep offset if any row of the selected repo is already visible,
 	// so panning into detail rows doesn't snap back to the top.
-	if last >= model.offset && first < model.offset+model.capacity {
-		model.offset = clamp(model.offset, 0, max(0, len(model.rows)-model.capacity))
+	visibleCapacity := model.capacity - stickyHeaderSize(model.rows, model.offset, model.capacity)
+	if last >= model.offset && first < model.offset+visibleCapacity {
+		model.offset = clamp(model.offset, 0, maxViewportOffset(model.rows, model.capacity))
 		return
 	}
 	if first < model.offset {
 		model.offset = first
 	}
-	if first >= model.offset+model.capacity {
+	if first >= model.offset+visibleCapacity {
 		model.offset = first - model.capacity + 1
+		model.offset += stickyHeaderSize(model.rows, model.offset, model.capacity)
 	}
-	model.offset = clamp(model.offset, 0, max(0, len(model.rows)-model.capacity))
+	model.offset = clamp(model.offset, 0, maxViewportOffset(model.rows, model.capacity))
 }
 
 // firstRowOf returns the first body row belonging to a repo, or -1.
@@ -447,30 +487,85 @@ func firstRepoAt(rows []rowEntry, offset int, fallback int) int {
 	return fallback
 }
 
-func (model Model) spinnerResults() []ui.RepoResult {
-	results := make([]ui.RepoResult, len(model.results))
-	copy(results, model.results)
+func (model Model) tableRows() []rowEntry {
+	results := append([]ui.RepoResult(nil), model.displayResults()...)
 	for index := range results {
 		if results[index].Loading {
-			// Rows stay plain until styling, including the spinner glyph.
 			results[index].LoadingText = model.spin.View()
+		}
+	}
+	entries := buildEntries(results, model.selected)
+	if !model.expanded {
+		compact := make([]rowEntry, 0, len(results))
+		for _, entry := range entries {
+			if entry.number != "" || entry.repoIndex < 0 && !entry.divider {
+				compact = append(compact, entry)
+			}
+		}
+		entries = compact
+	}
+	if len(model.groups) == 0 {
+		return entries
+	}
+	grouped := []rowEntry{}
+	position := 0
+	for _, group := range model.groups {
+		grouped = append(grouped, rowEntry{group: displayGroupPath(group.Path, model.home), groupSize: len(group.RepoIndexes), repoIndex: -1})
+		if len(group.RepoIndexes) == 0 {
+			grouped = append(grouped, rowEntry{status: ui.EmptyMessage(0), repoIndex: -1})
+		}
+		end := position + len(group.RepoIndexes)
+		for index, entry := range entries {
+			if entry.repoIndex >= position && entry.repoIndex < end {
+				if model.expanded && entry.number != "" && entry.repoIndex > position && index > 0 && entries[index-1].divider {
+					grouped = append(grouped, entries[index-1])
+				}
+				grouped = append(grouped, entry)
+			}
+		}
+		position = end
+	}
+	return grouped
+}
+
+func (model Model) displayResults() []ui.RepoResult {
+	if len(model.groups) == 0 {
+		return model.results
+	}
+	results := []ui.RepoResult{}
+	for _, group := range model.groups {
+		for _, index := range group.RepoIndexes {
+			results = append(results, model.results[index])
 		}
 	}
 	return results
 }
 
-func (model Model) tableRows() []rowEntry {
-	entries := buildEntries(model.spinnerResults(), model.selected)
-	if model.expanded {
-		return entries
-	}
-	compact := make([]rowEntry, 0, len(model.results))
-	for _, entry := range entries {
-		if entry.number != "" || entry.repoIndex < 0 && !entry.divider {
-			compact = append(compact, entry)
+func (model Model) selectedResult() ui.RepoResult {
+	results := model.displayResults()
+	return results[clamp(model.selected, 0, len(results)-1)]
+}
+
+func (model Model) selectedGroup() string {
+	position := 0
+	for _, group := range model.groups {
+		position += len(group.RepoIndexes)
+		if model.selected < position {
+			return group.Path
 		}
 	}
-	return compact
+	return ""
+}
+
+func displayGroupPath(path string, home string) string {
+	if home != "" {
+		if path == home {
+			path = "~"
+		} else if strings.HasPrefix(path, home+string(filepath.Separator)) {
+			path = "~" + strings.TrimPrefix(path, home)
+		}
+	}
+	return strings.NewReplacer("\r", "\\r", "\n", "\\n", "\t", "\\t").Replace(path)
 }
 
 func buildEntries(results []ui.RepoResult, selected int) []rowEntry {
@@ -550,6 +645,16 @@ func (model Model) renderHeader(width int) string {
 	content := max(1, width-spaceSM*2)
 	left := "gitsy"
 	right := model.headerRight()
+	if len(model.groups) > 0 {
+		directoryLabel := "directories"
+		if len(model.groups) == 1 {
+			directoryLabel = "directory"
+		}
+		left += fmt.Sprintf(" · %d %s", len(model.groups), directoryLabel)
+		if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
+			left = fmt.Sprintf("gitsy · %d dirs", len(model.groups))
+		}
+	}
 	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
 		if runewidth.StringWidth(right)+1 <= content {
 			left = truncateCell(left, content-runewidth.StringWidth(right)-spaceSM)
@@ -560,7 +665,7 @@ func (model Model) renderHeader(width int) string {
 	}
 	gap := strings.Repeat(" ", content-runewidth.StringWidth(left)-runewidth.StringWidth(right))
 	title := headerTitleStyle().Foreground(brand).Render(left) + gap + headerMetaStyle().Render(right)
-	summary := strings.TrimPrefix(ui.Title(model.results, len(model.results)), "gitsy • ")
+	summary := strings.TrimPrefix(model.title(), "gitsy • ")
 	parts := strings.Split(summary, " • ")
 	// Failures retain priority even when a very narrow summary must omit fields.
 	for index, part := range parts {
@@ -601,6 +706,14 @@ func (model Model) renderHeader(width int) string {
 	return headerBarStyle(width).Render(title + "\n" + strings.Join(lines, "\n"))
 }
 
+func (model Model) title() string {
+	title := ui.Title(model.results, len(model.results))
+	if len(model.displayResults()) > len(model.results) {
+		title = strings.Replace(title, fmt.Sprintf("%d repos", len(model.results)), fmt.Sprintf("%d unique repos", len(model.results)), 1)
+	}
+	return title
+}
+
 // headerRight is the header meta without the leading separator: the gap
 // between title and meta already separates them.
 func (model Model) headerRight() string {
@@ -632,10 +745,13 @@ func (model Model) infoLines(width int) []string {
 		columnHeaderStyle().Render(truncateCell("Selected repository", width)),
 		dividerStyle().Render(strings.Repeat("─", max(1, width))),
 	}
+	if model.browseEmpty {
+		return append(lines, "", "No repositories in view.")
+	}
 	if len(model.results) == 0 {
 		return append(lines, "", "Scan a directory containing", "Git repositories.")
 	}
-	result := model.results[clamp(model.selected, 0, len(model.results)-1)]
+	result := model.selectedResult()
 	lines = append(lines, "", headerTitleStyle().Render(truncateCell(result.Repo.DisplayName, width)))
 	lines = append(lines, wrapInfo(result.Repo.Path, width, textLo)...)
 	if branch := result.Status.Branch; branch != nil {
@@ -708,8 +824,33 @@ func visibleSlice(entries []rowEntry, offset int, capacity int) []rowEntry {
 		return nil
 	}
 	start := clamp(offset, 0, max(0, len(entries)-1))
+	if stickyHeaderSize(entries, start, capacity) > 0 {
+		for index := start - 1; index >= 0; index-- {
+			if entries[index].group != "" {
+				visible := []rowEntry{entries[index]}
+				return append(visible, entries[start:min(start+capacity-1, len(entries))]...)
+			}
+		}
+	}
 	end := min(start+max(1, capacity), len(entries))
 	return entries[start:end]
+}
+
+func stickyHeaderSize(entries []rowEntry, offset int, capacity int) int {
+	if capacity <= 1 || offset <= 0 || offset >= len(entries) || entries[offset].group != "" {
+		return 0
+	}
+	for index := offset - 1; index >= 0; index-- {
+		if entries[index].group != "" {
+			return 1
+		}
+	}
+	return 0
+}
+
+func maxViewportOffset(entries []rowEntry, capacity int) int {
+	offset := max(0, len(entries)-capacity)
+	return offset + stickyHeaderSize(entries, offset, capacity)
 }
 
 func (model Model) visibleRows() []rowEntry {
@@ -718,6 +859,23 @@ func (model Model) visibleRows() []rowEntry {
 
 // Keep the selection marker visible even without terminal color support.
 func renderRow(entry rowEntry, cols [3]int, selected int) string {
+	if entry.group != "" {
+		width := lineWidthFor(cols)
+		count := fmt.Sprintf("%d repos", entry.groupSize)
+		if entry.groupSize == 1 {
+			count = "1 repo"
+		}
+		if width < runewidth.StringWidth(count)+4 {
+			return infoSectionStyle().Render(padCell(truncateCell(entry.group, width), width))
+		}
+		pathWidth := width - runewidth.StringWidth(count) - columnGap
+		path := entry.group
+		if fullWidth := runewidth.StringWidth(path); fullWidth > pathWidth {
+			path = runewidth.TruncateLeft(path, fullWidth-pathWidth+1, "…")
+		}
+		return infoSectionStyle().Render(padCell(path, pathWidth)) +
+			strings.Repeat(" ", columnGap) + headerMetaStyle().Render(count)
+	}
 	if entry.divider {
 		return strings.Repeat(" ", max(1, lineWidthFor(cols)))
 	}
@@ -788,8 +946,8 @@ func (model Model) renderFooter(width int) string {
 
 func (model Model) footerPlain(content int) string {
 	position := ""
-	if len(model.results) > 0 {
-		position = strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.results))
+	if len(model.results) > 0 && !model.browseEmpty {
+		position = strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.displayResults()))
 	}
 	hints := []string{
 		"↑/↓ j/k move · tab files · PgUp/PgDn · q quit",

@@ -27,6 +27,16 @@ type Repo struct {
 	Source      RepoSource
 }
 
+type Group struct {
+	Path        string
+	RepoIndexes []int
+}
+
+type Workspace struct {
+	Repos  []Repo
+	Groups []Group
+}
+
 type Options struct {
 	Cwd      string
 	Dirs     []string
@@ -156,12 +166,17 @@ func Discover(options Options) ([]Repo, error) {
 }
 
 func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
+	workspace, err := DiscoverGroupedContext(ctx, options)
+	return workspace.Repos, err
+}
+
+func DiscoverGroupedContext(ctx context.Context, options Options) (Workspace, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	cwd, err := filepath.Abs(options.Cwd)
 	if err != nil {
-		return nil, fmt.Errorf("resolve scan directory: %w", err)
+		return Workspace{}, fmt.Errorf("resolve scan directory: %w", err)
 	}
 
 	roots := make([]string, 0, len(options.Dirs))
@@ -176,18 +191,21 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 	}
 	warn := createWarner(options)
 	reposByRealPath := map[string]Repo{}
+	members := make([]map[string]bool, len(roots))
 
-	for _, root := range roots {
+	for groupIndex, root := range roots {
+		members[groupIndex] = map[string]bool{}
 		candidates, err := findGitCandidates(ctx, root, options.MaxDepth, nil, warn)
 		if err != nil {
-			return nil, err
+			return Workspace{}, err
 		}
 		for _, candidate := range candidates {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return Workspace{}, err
 			}
 			verified, ok := verifyRepo(ctx, candidate, SourceScan, warn)
 			if ok {
+				members[groupIndex][verified.RealPath] = true
 				if _, exists := reposByRealPath[verified.RealPath]; !exists {
 					reposByRealPath[verified.RealPath] = verified
 				}
@@ -199,10 +217,18 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 	for _, repo := range reposByRealPath {
 		scannedRepos = append(scannedRepos, repo)
 	}
+	sort.Slice(scannedRepos, func(i, j int) bool { return scannedRepos[i].Path < scannedRepos[j].Path })
+	scannedMembers := make([]map[string]bool, len(members))
+	for index, group := range members {
+		scannedMembers[index] = map[string]bool{}
+		for realPath := range group {
+			scannedMembers[index][realPath] = true
+		}
+	}
 
 	for _, repo := range scannedRepos {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return Workspace{}, err
 		}
 		result := git.WorktreeListContext(ctx, repo.Path)
 		if !result.OK {
@@ -213,6 +239,11 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 		for _, worktreePath := range git.ParseWorktreePaths(result.Stdout) {
 			verified, ok := verifyRepo(ctx, worktreePath, SourceWorktree, warn)
 			if ok {
+				for index, group := range scannedMembers {
+					if group[repo.RealPath] {
+						members[index][verified.RealPath] = true
+					}
+				}
 				if _, exists := reposByRealPath[verified.RealPath]; !exists {
 					reposByRealPath[verified.RealPath] = verified
 				}
@@ -225,7 +256,7 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 		repos = append(repos, repo)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return Workspace{}, err
 	}
 	sort.Slice(repos, func(i, j int) bool {
 		if repos[i].DisplayName == repos[j].DisplayName {
@@ -233,7 +264,16 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 		}
 		return repos[i].DisplayName < repos[j].DisplayName
 	})
-	return repos, nil
+	groups := make([]Group, len(roots))
+	for index, root := range roots {
+		groups[index].Path = root
+		for repoIndex, repo := range repos {
+			if members[index][repo.RealPath] {
+				groups[index].RepoIndexes = append(groups[index].RepoIndexes, repoIndex)
+			}
+		}
+	}
+	return Workspace{Repos: repos, Groups: groups}, nil
 }
 
 func DisplayNameForPath(repoPath string) string {

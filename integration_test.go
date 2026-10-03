@@ -1,6 +1,7 @@
 package gitsy_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,68 @@ import (
 	"github.com/flexdinesh/gitsy/internal/git"
 	"github.com/flexdinesh/gitsy/internal/status"
 )
+
+func TestGroupedDiscoveryPreservesRootsAndSharedWorktrees(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	root := filepath.Join(dir, "workspace")
+	one, two, empty := filepath.Join(root, "one"), filepath.Join(root, "two"), filepath.Join(root, "empty")
+	api, web := filepath.Join(one, "api"), filepath.Join(two, "web")
+	linked := filepath.Join(dir, "outside", "linked")
+	for _, path := range []string{api, web, empty} {
+		mkdirAll(t, path)
+	}
+	for _, repo := range []string{api, web} {
+		runGit(t, repo, "init", "-q", "-b", "main")
+	}
+	configureGitUser(t, api)
+	runGit(t, api, "commit", "--allow-empty", "-qm", "initial")
+	runGit(t, api, "worktree", "add", "-q", "-b", "linked", linked)
+	alias := filepath.Join(dir, "alias")
+	if err := os.Symlink(one, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		dirs  []string
+		roots []string
+		paths [][]string
+	}{
+		{name: "current directory", roots: []string{root}, paths: [][]string{{api, linked, web}}},
+		{name: "overlap", dirs: []string{".", "one"}, roots: []string{root, one}, paths: [][]string{{api, linked, web}, {api, linked}}},
+		{name: "repeated aliases and empty", dirs: []string{two, alias, one, empty, one}, roots: []string{two, alias, one, empty, one}, paths: [][]string{{web}, {api, linked}, {api, linked}, {}, {api, linked}}},
+		{name: "linked worktree scanned first", dirs: []string{filepath.Dir(linked), one}, roots: []string{filepath.Dir(linked), one}, paths: [][]string{{api, linked}, {api, linked}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspace, err := discover.DiscoverGroupedContext(context.Background(), discover.Options{Cwd: root, Dirs: test.dirs, MaxDepth: 3})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(workspace.Groups) != len(test.roots) {
+				t.Fatalf("expected one group per root: %+v", workspace.Groups)
+			}
+			seen := map[string]bool{}
+			for _, repo := range workspace.Repos {
+				if seen[repo.RealPath] {
+					t.Fatalf("inspection list duplicates %s", repo.RealPath)
+				}
+				seen[repo.RealPath] = true
+			}
+			for index, group := range workspace.Groups {
+				if group.Path != test.roots[index] {
+					t.Fatalf("group order/root changed: got %s want %s", group.Path, test.roots[index])
+				}
+				paths := []string{}
+				for _, repoIndex := range group.RepoIndexes {
+					paths = append(paths, workspace.Repos[repoIndex].RealPath)
+				}
+				if !reflect.DeepEqual(paths, test.paths[index]) {
+					t.Fatalf("group %s: got %v want %v", group.Path, paths, test.paths[index])
+				}
+			}
+		})
+	}
+}
 
 func TestDiscoversMultipleDirectoriesAndExternalWorktrees(t *testing.T) {
 	requireGit(t)
