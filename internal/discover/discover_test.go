@@ -161,6 +161,40 @@ func TestDisplayNameForPath(t *testing.T) {
 	}
 }
 
+func TestNameFromRemote(t *testing.T) {
+	tests := []struct {
+		name   string
+		remote string
+		want   string
+	}{
+		{name: "https", remote: "https://example.com/org/servediff.git", want: "servediff"},
+		{name: "ssh", remote: "ssh://git@example.com:2222/org/servediff.git", want: "servediff"},
+		{name: "scp", remote: "git@example.com:org/servediff.git", want: "servediff"},
+		{name: "scp without directory", remote: "git@example.com:servediff.git", want: "servediff"},
+		{name: "local", remote: "/repos/servediff.git", want: "servediff"},
+		{name: "relative", remote: "../servediff.git", want: "servediff"},
+		{name: "file", remote: "file:///repos/servediff.git", want: "servediff"},
+		{name: "no suffix", remote: "https://example.com/org/servediff", want: "servediff"},
+		{name: "trailing slash", remote: "https://example.com/org/servediff.git/", want: "servediff"},
+		{name: "query", remote: "https://example.com/org/servediff.git?token=test", want: "servediff"},
+		{name: "unicode", remote: "git@example.com:org/日本語.git", want: "日本語"},
+		{name: "control characters", remote: "/repos/repo\r\nwith\ttabs.git", want: "repo\\r\\nwith\\ttabs"},
+		{name: "empty", remote: ""},
+		{name: "host only", remote: "https://example.com"},
+		{name: "root", remote: "/"},
+		{name: "dot", remote: "."},
+		{name: "parent", remote: ".."},
+		{name: "invalid URL", remote: "https://example.com/%zz"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := nameFromRemote(test.remote); got != test.want {
+				t.Fatalf("expected %q, got %q", test.want, got)
+			}
+		})
+	}
+}
+
 func mkdir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
