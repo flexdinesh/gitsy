@@ -59,20 +59,83 @@ func TestDiscoversMultipleDirectoriesAndExternalWorktrees(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []string{worktree, "org-one/project", "org-two/project"}
+			want := []string{"linked", "project", "project"}
+			wantPaths := []string{worktree, repo, filepath.Join(two, "project")}
 			if test.deep {
-				want = append(want, "org-one/nested/deep")
+				want = append(want, "deep")
+				wantPaths = append(wantPaths, deep)
 			}
 			sort.Strings(want)
+			sort.Strings(wantPaths)
 			names := []string{}
+			paths := []string{}
 			for _, found := range repos {
 				names = append(names, found.DisplayName)
+				paths = append(paths, found.RealPath)
 				if found.Path == worktree && found.Source != discover.SourceWorktree {
 					t.Fatalf("external worktree must come from worktree discovery: %+v", found)
 				}
 			}
 			if !reflect.DeepEqual(names, want) {
 				t.Fatalf("expected selected repos and external worktree %v, got %v", want, names)
+			}
+			sort.Strings(paths)
+			if !reflect.DeepEqual(paths, wantPaths) {
+				t.Fatalf("expected selected paths %v, got %v", wantPaths, paths)
+			}
+			for index := 1; index < len(repos); index++ {
+				previous, current := repos[index-1], repos[index]
+				if previous.DisplayName == current.DisplayName && previous.Path > current.Path {
+					t.Fatalf("duplicate names must be ordered by path: %v", repos)
+				}
+			}
+		})
+	}
+}
+
+func TestDiscoverUsesSelectedDirectories(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	cwd := filepath.Join(dir, "cwd")
+	one := filepath.Join(dir, "one")
+	two := filepath.Join(dir, "two")
+	defaultRepo := filepath.Join(cwd, "default-repo")
+	firstRepo := filepath.Join(one, "first-repo")
+	secondRepo := filepath.Join(two, "second-repo")
+	for _, path := range []string{defaultRepo, firstRepo, secondRepo} {
+		mkdirAll(t, path)
+		runGit(t, path, "init", "-q", "-b", "main")
+	}
+	tests := []struct {
+		name string
+		cwd  string
+		argv []string
+		want []string
+	}{
+		{name: "default", cwd: cwd, want: []string{defaultRepo}},
+		{name: "single directory", cwd: cwd, argv: []string{"--dir", one}, want: []string{firstRepo}},
+		{name: "multiple directories", cwd: cwd, argv: []string{"--dir", one, "--dir", two}, want: []string{firstRepo, secondRepo}},
+		{name: "current repo inside selected directory", cwd: firstRepo, argv: []string{"--dir", one, "--dir", two}, want: []string{firstRepo, secondRepo}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed := args.Parse(test.argv, test.cwd)
+			if !parsed.OK {
+				t.Fatal(parsed.Err)
+			}
+			repos, err := discover.Discover(discover.Options{Cwd: test.cwd, Dirs: parsed.Options.Dirs, MaxDepth: parsed.Options.MaxDepth})
+			if err != nil {
+				t.Fatal(err)
+			}
+			paths := []string{}
+			for _, repo := range repos {
+				paths = append(paths, repo.Path)
+				if repo.DisplayName != filepath.Base(repo.Path) {
+					t.Fatalf("expected repo name %q, got %q", filepath.Base(repo.Path), repo.DisplayName)
+				}
+			}
+			if !reflect.DeepEqual(paths, test.want) {
+				t.Fatalf("expected selected repos %v, got %v", test.want, paths)
 			}
 		})
 	}

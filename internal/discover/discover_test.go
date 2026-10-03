@@ -136,15 +136,28 @@ func TestParseWorktreePaths(t *testing.T) {
 
 func TestDisplayNameForPath(t *testing.T) {
 	dir := t.TempDir()
-	if got := DisplayNameForPath(dir, filepath.Join(dir, "repo")); got != "repo" {
-		t.Fatalf("expected repo, got %s", got)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
 	}
-	parent := filepath.Dir(dir)
-	if got := DisplayNameForPath(dir, parent); got != filepath.Clean(parent) {
-		t.Fatalf("expected %s, got %s", filepath.Clean(parent), got)
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "repo", path: filepath.Join(dir, "repo"), want: "repo"},
+		{name: "nested", path: filepath.Join(dir, "org", "repo"), want: "repo"},
+		{name: "external", path: filepath.Dir(dir), want: filepath.Base(filepath.Dir(dir))},
+		{name: "current directory", path: ".", want: filepath.Base(cwd)},
+		{name: "relative", path: filepath.Join("org", "repo"), want: "repo"},
+		{name: "control characters", path: filepath.Join(dir, "linked\r\nwith\ttabs"), want: "linked\\r\\nwith\\ttabs"},
 	}
-	if got := DisplayNameForPath(dir, filepath.Join(dir, "linked\r\nwith\ttabs")); got != "linked\\r\\nwith\\ttabs" {
-		t.Fatalf("display name must keep control characters out of table rows: %q", got)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := DisplayNameForPath(test.path); got != test.want {
+				t.Fatalf("expected %q, got %q", test.want, got)
+			}
+		})
 	}
 }
 

@@ -145,9 +145,7 @@ func findGitCandidates(ctx context.Context, cwd string, maxDepth int, ignoredDir
 	for candidate := range candidates {
 		result = append(result, candidate)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return DisplayNameForPath(root, result[i]) < DisplayNameForPath(root, result[j])
-	})
+	sort.Strings(result)
 	return result, nil
 }
 
@@ -174,11 +172,6 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 	if len(roots) == 0 {
 		roots = append(roots, cwd)
 	}
-	displayRoot := cwd
-	if len(roots) == 1 {
-		displayRoot = roots[0]
-	}
-
 	warn := createWarner(options)
 	reposByRealPath := map[string]Repo{}
 
@@ -191,7 +184,7 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			verified, ok := verifyRepo(ctx, candidate, displayRoot, SourceScan, warn)
+			verified, ok := verifyRepo(ctx, candidate, SourceScan, warn)
 			if ok {
 				if _, exists := reposByRealPath[verified.RealPath]; !exists {
 					reposByRealPath[verified.RealPath] = verified
@@ -216,7 +209,7 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 		}
 
 		for _, worktreePath := range git.ParseWorktreePaths(result.Stdout) {
-			verified, ok := verifyRepo(ctx, worktreePath, displayRoot, SourceWorktree, warn)
+			verified, ok := verifyRepo(ctx, worktreePath, SourceWorktree, warn)
 			if ok {
 				if _, exists := reposByRealPath[verified.RealPath]; !exists {
 					reposByRealPath[verified.RealPath] = verified
@@ -233,38 +226,28 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 		return nil, err
 	}
 	sort.Slice(repos, func(i, j int) bool {
+		if repos[i].DisplayName == repos[j].DisplayName {
+			return repos[i].Path < repos[j].Path
+		}
 		return repos[i].DisplayName < repos[j].DisplayName
 	})
 	return repos, nil
 }
 
-func DisplayNameForPath(cwd string, repoPath string) string {
-	root, err := filepath.Abs(cwd)
-	if err != nil {
-		root = filepath.Clean(cwd)
-	}
+func DisplayNameForPath(repoPath string) string {
 	absoluteRepo, err := filepath.Abs(repoPath)
 	if err != nil {
 		absoluteRepo = filepath.Clean(repoPath)
 	}
 
-	relative, err := filepath.Rel(root, absoluteRepo)
-	if err == nil {
-		if relative == "." {
-			return "."
-		}
-		if !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && relative != ".." && !filepath.IsAbs(relative) {
-			return displayPath(relative)
-		}
-	}
-	return displayPath(absoluteRepo)
+	return displayPath(filepath.Base(absoluteRepo))
 }
 
 func displayPath(path string) string {
 	return strings.NewReplacer("\r", "\\r", "\n", "\\n", "\t", "\\t").Replace(path)
 }
 
-func verifyRepo(ctx context.Context, repoPath string, cwd string, source RepoSource, warn func(message string)) (Repo, bool) {
+func verifyRepo(ctx context.Context, repoPath string, source RepoSource, warn func(message string)) (Repo, bool) {
 	stats, err := os.Stat(repoPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -287,26 +270,26 @@ func verifyRepo(ctx context.Context, repoPath string, cwd string, source RepoSou
 
 	topLevel := git.TopLevelContext(ctx, repoPath)
 	if !topLevel.OK {
-		warn(fmt.Sprintf("Skipping invalid git repo %s: %s", DisplayNameForPath(cwd, repoPath), gitError(topLevel)))
+		warn(fmt.Sprintf("Skipping invalid git repo %s: %s", DisplayNameForPath(repoPath), gitError(topLevel)))
 		return Repo{}, false
 	}
 
 	topLevelPath := strings.TrimSuffix(topLevel.Stdout, "\n")
 	topLevelRealPath, err := filepath.EvalSymlinks(topLevelPath)
 	if err != nil {
-		warn(fmt.Sprintf("Skipping repo %s with inaccessible top-level %s: %s", DisplayNameForPath(cwd, repoPath), topLevelPath, err.Error()))
+		warn(fmt.Sprintf("Skipping repo %s with inaccessible top-level %s: %s", DisplayNameForPath(repoPath), topLevelPath, err.Error()))
 		return Repo{}, false
 	}
 
 	if filepath.Clean(repoRealPath) != filepath.Clean(topLevelRealPath) {
-		warn(fmt.Sprintf("Skipping nested git directory %s; top-level is %s", DisplayNameForPath(cwd, repoPath), topLevelPath))
+		warn(fmt.Sprintf("Skipping nested git directory %s; top-level is %s", DisplayNameForPath(repoPath), topLevelPath))
 		return Repo{}, false
 	}
 
 	return Repo{
 		Path:        repoPath,
 		RealPath:    repoRealPath,
-		DisplayName: DisplayNameForPath(cwd, repoPath),
+		DisplayName: DisplayNameForPath(repoPath),
 		Source:      source,
 	}, true
 }

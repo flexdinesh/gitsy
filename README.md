@@ -53,6 +53,8 @@ With `--dir`, only the supplied directories are scanned. `--max-depth` applies
 to each directory; linked worktrees are included wherever they live. Relative
 paths resolve from the current directory.
 
+Repository labels show only the directory name; full paths appear in the sidebar.
+
 ## Development
 
 Project commands run through mise:
