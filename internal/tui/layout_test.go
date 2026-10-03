@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/flexdinesh/gitsy/internal/discover"
 	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
 	"github.com/muesli/termenv"
@@ -124,7 +125,7 @@ func TestRenderPreviews(t *testing.T) {
 	captures := map[string]string{}
 	for _, theme := range []string{"dark", "light"} {
 		lipgloss.SetHasDarkBackground(theme == "dark")
-		for _, mode := range []string{"wide", "narrow", "files", "empty"} {
+		for _, mode := range []string{"wide", "narrow", "files", "empty", "grouped", "grouped-narrow", "grouped-files", "grouped-scrolled", "grouped-empty", "grouped-compact", "grouped-empty-scrolled"} {
 			model := previewModel()
 			model.width, model.height = 120, 24
 			if mode == "narrow" {
@@ -134,7 +135,37 @@ func TestRenderPreviews(t *testing.T) {
 			if mode == "empty" {
 				model.results = nil
 			}
+			if strings.HasPrefix(mode, "grouped") {
+				model.groups = []discover.Group{
+					{Path: "/workspace/work", RepoIndexes: []int{0, 1, 2, 3}},
+					{Path: "/workspace/personal", RepoIndexes: []int{0, 4, 5, 6, 7}},
+					{Path: "/workspace/empty"},
+				}
+				model.expanded = mode == "grouped-files"
+				if mode == "grouped-narrow" {
+					model.width, model.height = 40, 16
+				}
+				if mode == "grouped-compact" {
+					model.width, model.height = 28, 6
+				}
+				if mode == "grouped-scrolled" {
+					model.width, model.height = 80, 10
+					model.selected = 8
+				}
+				if mode == "grouped-empty" {
+					model.results = nil
+					for index := range model.groups {
+						model.groups[index].RepoIndexes = nil
+					}
+				}
+			}
 			model.refresh()
+			if mode == "grouped-empty-scrolled" {
+				model.width, model.height = 80, 8
+				model.refresh()
+				model.selectRepo(8)
+				model.scrollViewport(100)
+			}
 			captures[theme+"-"+mode] = model.View()
 		}
 	}

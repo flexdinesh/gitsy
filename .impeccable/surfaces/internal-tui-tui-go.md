@@ -11,14 +11,18 @@ Mode: Operate. Priorities: identify changed/behind/failed repositories quickly a
 
 ## Direction contract
 
-THESIS: A dispatch board for workspace exceptions, with dense repository strips and optional file detail.
+THESIS: A dispatch board grouped by scan directory, with dense repository strips and optional file detail.
 
 OWN-WORLD: Slate neutrals, restrained sea-glass selection, amber warnings, coral failures. Open gutters, a thin heading rule, one tinted current row. Terminal font and background remain user-owned.
 
-STORY: Scan the workspace summary, move through repositories, inspect selected metadata, toggle file rows when needed. Clean states recede; exceptions stay explicit.
+STORY: Scan unique-repository totals, identify each directory's repositories, move across groups, inspect selected metadata, toggle file rows. Overlapping repositories appear in every matching group while Git operations run once per unique repository.
 
-FIRST VIEWPORT: A two-line summary above a full-height ledger. One row per repository by default. Wide terminals add selected-repository context behind a single vertical rule; narrow terminals devote width to the ledger. Footer carries position, navigation, tab to toggle file details, and quit. Signature interaction: the tinted current strip drives the context rail immediately.
+FIRST VIEWPORT: A two-line summary above one scrolling ledger with shared columns. Each --dir produces an always-expanded section in argument order; without --dir, current directory is the group. Bold path and subdued count introduce each section. Empty directories retain a header and explanation. One row per repository appearance by default. Headers are unselectable; keyboard movement crosses them. Scrolling pins directory context when space allows; compact mode identifies the selected directory. Wide terminals retain the context rail. Footer counts appearances. Signature interaction: one selected appearance drives context while shared inspection results update every appearance.
 
-FORM: Flight-progress dispatch strips, candidate 3; seed 4e574b15. Other grounded candidates: editor gutter, departure board, laboratory log, mixing desk, map index, build trace. Catalog challengers declined for weaker developer identification and status clarity; retain consistent fields, alignment, structural compression, whitespace, color-independent selection, and a tonal hierarchy. User priorities tighten strips to one line. No unresolved questions.
+SCROLLING: Page keys and mouse wheel reach group-only rows, including trailing empty groups at eight lines. With no repository visible, suppress selection marker, footer position, and repository metadata; retain directory context and count or explanation. Compact summaries label overlapping totals “unique repos.”
+
+FORM: Extension of flight-progress dispatch strips, candidate 3; seed 4e574b15. Preserve slate/sea-glass identity, shared alignment and one-line density; add directory sections without enclosing boxes or collapse controls. External linked worktrees inherit every discovering scan group. No unresolved questions.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
+VERIFIED: Follow-up finish review scored trailing-empty-group reachability, compact unique-count labels, and resize selection recovery resolved; disposition ship at that scope. DESIGN.md records the extension; tokens unchanged. Full tests and local checks pass. No raster assets ship.

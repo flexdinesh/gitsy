@@ -59,7 +59,7 @@ A terminal dispatch board: aligned repository strips make workspace exceptions e
 
 **Key Characteristics:**
 
-- One repository per row by default.
+- Always-expanded directory groups; one repository appearance per row by default.
 - Explicit status text alongside semantic color.
 - Adaptive light and dark colors; no app-wide background fill.
 
@@ -77,7 +77,7 @@ Unselected clean summaries and ordinary file detail use text-lo even when their 
 
 ## Typography
 
-The user's terminal controls family, size, line height, and glyph rendering. The application applies normal or bold emphasis only. Bold distinguishes the title, table headings, context labels, and selected repository; explicit low-contrast colors replace terminal faint styling.
+The user's terminal controls family, size, line height, and glyph rendering. The application applies normal or bold emphasis only. Bold distinguishes the title, table headings, directory paths, context labels, and selected repository; explicit low-contrast colors replace terminal faint styling. Directory counts use subdued metadata text.
 
 Width measurement uses display cells, not bytes. Truncation and path wrapping respect Unicode display width.
 
@@ -85,11 +85,13 @@ Width measurement uses display cells, not bytes. Truncation and path wrapping re
 
 All dimensions use terminal cells. Header, ledger, and footer share two-cell horizontal gutters. Columns and panels use two-cell gaps; context has one-cell horizontal insets.
 
-The regular view reserves three header lines, two ledger heading/rule lines, and one footer line. Remaining height is the row viewport, at least one row. Default density is one row per repository. Tab expands all file rows and adds a blank separator between repositories.
+The regular view reserves three header lines, two ledger heading/rule lines, and one footer line. Remaining height is the row viewport, at least one row. Each `--dir` adds an always-expanded group in argument order; the current directory supplies the default group. All groups share columns. Default density is one row per repository appearance. Tab expands all file rows and adds a blank separator between repositories within each group.
+
+Directory headers remain in the scrolling ledger, with sticky directory context when more than one viewport row is available. Empty groups retain their header and explanation, including trailing groups in short terminals. Overlapping repositories appear in every matching group; inspection results and Git actions are shared per unique repository.
 
 Context appears at 104 columns: at least 72 for the ledger, two for the gap, and 30 for context. Context takes one quarter of terminal width, clamped to 30–38 columns. Repository names cap at 28 cells; remaining width favors status.
 
-Below 32 columns or seven lines, a compact view shows the selected repository and available detail, truncated to the terminal bounds. Unspecified dimensions default to 80 × 24.
+Below 32 columns or seven lines, a compact view shows directory context, the selected repository, and available detail, truncated to the terminal bounds. Group-only views show directory context and its count or empty explanation. Unspecified dimensions default to 80 × 24.
 
 ## Elevation & Depth
 
@@ -101,12 +103,13 @@ Open rectangular rows, a horizontal heading rule, and one vertical context divid
 
 ## Components
 
-- Workspace header: sea-glass title; right-aligned fetch/local/sync mode and pending/done text. Up to two summary lines show repository count and exceptions. Failures precede other exception counts, preserving their priority at limited widths.
+- Workspace header: sea-glass title and directory count; right-aligned fetch/local/sync mode and pending/done text. Up to two summary lines show unique repository totals and exceptions. Overlapping groups label the total “unique repos,” including in compact mode. Failures precede other exception counts, preserving their priority at limited widths.
+- Directory header: bold path and subdued repository count span the shared ledger width. Home paths use `~`; long paths retain their trailing portion. Headers are unselectable and groups remain expanded.
 - Repository strip: number, repository, branch/status. The current repository gains a sea-glass › marker, bold identity, and selection wash across its rows. Narrow status columns switch to actionable compact wording before truncation.
 - Status detail: branch, ahead/behind arrows, clean state, and deterministic file-category counts. Failed status replaces unavailable detail; failed sync and stale fetch remain explicit. Loading uses the Bubbles dot spinner and status text.
-- Context rail: selected name, wrapped path, branch, upstream, status, and skipped-sync reason when present. It follows selection immediately and shares the ledger's height.
-- Footer: selected position and width-adaptive key hints. Arrow keys or j/k navigate repositories; Tab toggles files; page and half-page keys scroll; Home/End or g/G select endpoints; q/Q/Ctrl+C quit. Mouse wheel scrolling remains available.
-- Empty state: “No child git repositories found.” appears in the ledger without fabricated rows.
+- Context rail: selected name, wrapped path, branch, upstream, status, and skipped-sync reason when present. It follows the selected appearance immediately and shares the ledger's height. Group-only views replace repository metadata with “No repositories in view.”
+- Footer: selected appearance position and width-adaptive key hints. Arrow keys or j/k navigate repository appearances across headers; Tab toggles files; page and half-page keys scroll; Home/End or g/G select endpoints; q/Q/Ctrl+C quit. Page keys and mouse wheel can inspect group-only rows; selection marker, position, and repository context disappear while no repository is visible.
+- Empty state: each empty group retains its header and “No child git repositories found.” explanation without fabricated repository rows.
 
 ## Do's and Don'ts
 

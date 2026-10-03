@@ -73,7 +73,7 @@ func run(argv []string) error {
 
 	warnings := &warningCollector{}
 
-	repos, err := discover.DiscoverContext(ctx, discover.Options{
+	workspace, err := discover.DiscoverGroupedContext(ctx, discover.Options{
 		Cwd:      cwd,
 		Dirs:     options.Dirs,
 		MaxDepth: options.MaxDepth,
@@ -94,7 +94,7 @@ func run(argv []string) error {
 		processWarn = warnings.Add
 	}
 
-	err = tui.Run(ctx, cancel, os.Stdout, repos, noFetch, options.Sync, processWarn)
+	err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, processWarn)
 	if options.Verbose {
 		warnings.Print(os.Stderr)
 	}

@@ -53,6 +53,12 @@ With `--dir`, only the supplied directories are scanned. `--max-depth` applies
 to each directory; linked worktrees are included wherever they live. Relative
 paths resolve from the current directory.
 
+Repositories are grouped by scan directory, in the order `--dir` is supplied.
+Without `--dir`, the current directory is the group. Groups stay expanded;
+navigation skips directory headers. Repositories found through overlapping
+directories appear in each group, while fetch, status and sync run once per
+unique repository. Linked worktrees appear in each group that discovers them.
+
 Repository labels use the origin remote's repository name, falling back to the
 directory name when unavailable. Full paths appear in the sidebar.
 
