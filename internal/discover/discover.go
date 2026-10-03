@@ -27,6 +27,7 @@ type Repo struct {
 
 type Options struct {
 	Cwd      string
+	Dirs     []string
 	MaxDepth int
 	Verbose  bool
 	Warn     func(message string)
@@ -163,20 +164,39 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 		return nil, fmt.Errorf("resolve scan directory: %w", err)
 	}
 
+	roots := make([]string, 0, len(options.Dirs))
+	for _, dir := range options.Dirs {
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(cwd, dir)
+		}
+		roots = append(roots, filepath.Clean(dir))
+	}
+	if len(roots) == 0 {
+		roots = append(roots, cwd)
+	}
+	displayRoot := cwd
+	if len(roots) == 1 {
+		displayRoot = roots[0]
+	}
+
 	warn := createWarner(options)
 	reposByRealPath := map[string]Repo{}
 
-	candidates, err := findGitCandidates(ctx, cwd, options.MaxDepth, nil, warn)
-	if err != nil {
-		return nil, err
-	}
-	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
+	for _, root := range roots {
+		candidates, err := findGitCandidates(ctx, root, options.MaxDepth, nil, warn)
+		if err != nil {
 			return nil, err
 		}
-		verified, ok := verifyRepo(ctx, candidate, cwd, SourceScan, warn)
-		if ok {
-			reposByRealPath[verified.RealPath] = verified
+		for _, candidate := range candidates {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			verified, ok := verifyRepo(ctx, candidate, displayRoot, SourceScan, warn)
+			if ok {
+				if _, exists := reposByRealPath[verified.RealPath]; !exists {
+					reposByRealPath[verified.RealPath] = verified
+				}
+			}
 		}
 	}
 
@@ -196,7 +216,7 @@ func DiscoverContext(ctx context.Context, options Options) ([]Repo, error) {
 		}
 
 		for _, worktreePath := range git.ParseWorktreePaths(result.Stdout) {
-			verified, ok := verifyRepo(ctx, worktreePath, cwd, SourceWorktree, warn)
+			verified, ok := verifyRepo(ctx, worktreePath, displayRoot, SourceWorktree, warn)
 			if ok {
 				if _, exists := reposByRealPath[verified.RealPath]; !exists {
 					reposByRealPath[verified.RealPath] = verified

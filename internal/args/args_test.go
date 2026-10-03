@@ -1,6 +1,9 @@
 package args
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestParseReturnsDefaults(t *testing.T) {
 	result := Parse(nil, "/cwd")
@@ -10,8 +13,8 @@ func TestParseReturnsDefaults(t *testing.T) {
 	if result.Options.MaxDepth != 3 {
 		t.Fatalf("expected MaxDepth 3, got %d", result.Options.MaxDepth)
 	}
-	if result.Options.Dir != "/cwd" {
-		t.Fatalf("expected Dir /cwd, got %s", result.Options.Dir)
+	if !reflect.DeepEqual(result.Options.Dirs, []string{"/cwd"}) {
+		t.Fatalf("expected Dirs [/cwd], got %v", result.Options.Dirs)
 	}
 	if result.Options.Verbose || result.Options.NoFetch || result.Options.Sync || result.Options.Help || result.Options.Version {
 		t.Fatalf("expected boolean flags to default false: %+v", result.Options)
@@ -62,10 +65,12 @@ func TestParseRejectsInvalidMaxDepth(t *testing.T) {
 func TestParseSupportsDir(t *testing.T) {
 	tests := []struct {
 		argv []string
-		want string
+		want []string
 	}{
-		{argv: []string{"--dir", "/some/path"}, want: "/some/path"},
-		{argv: []string{"--dir=/another/path"}, want: "/another/path"},
+		{argv: []string{"--dir", "/some/path"}, want: []string{"/some/path"}},
+		{argv: []string{"--dir=/another/path"}, want: []string{"/another/path"}},
+		{argv: []string{"--dir", "/one", "--dir", "/two"}, want: []string{"/one", "/two"}},
+		{argv: []string{"--dir=/one", "--no-fetch", "--dir", "two", "--max-depth", "2"}, want: []string{"/one", "two"}},
 	}
 
 	for _, test := range tests {
@@ -73,14 +78,14 @@ func TestParseSupportsDir(t *testing.T) {
 		if !result.OK {
 			t.Fatalf("Parse returned error: %v", result.Err)
 		}
-		if result.Options.Dir != test.want {
-			t.Fatalf("expected Dir %s, got %s", test.want, result.Options.Dir)
+		if !reflect.DeepEqual(result.Options.Dirs, test.want) {
+			t.Fatalf("expected Dirs %v, got %v", test.want, result.Options.Dirs)
 		}
 	}
 }
 
 func TestParseRejectsMissingDir(t *testing.T) {
-	for _, argv := range [][]string{{"--dir"}, {"--dir", "--verbose"}, {"--dir="}} {
+	for _, argv := range [][]string{{"--dir"}, {"--dir", "--verbose"}, {"--dir="}, {"--dir", "/one", "--dir"}, {"--dir=/one", "--dir="}} {
 		if Parse(argv, "/cwd").OK {
 			t.Fatalf("expected Parse(%v) to fail", argv)
 		}

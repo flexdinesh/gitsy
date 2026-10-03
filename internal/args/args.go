@@ -14,7 +14,7 @@ Show git status across child repositories and linked worktrees.
 
 Options:
   --max-depth <n>    Scan repository directories up to n nested levels (default: 3)
-  --dir <path>       Start scanning from <path> instead of the current directory
+  --dir <path>       Scan <path> instead of the current directory (repeatable)
   --verbose          Print warnings for skipped repos and failed git commands
   --no-fetch         Skip fetching upstream changes (use local status only)
   --sync             Fast-forward repos that can safely update without conflicts (always fetches)
@@ -27,7 +27,7 @@ type Options struct {
 	Verbose  bool
 	NoFetch  bool
 	Sync     bool
-	Dir      string
+	Dirs     []string
 	Help     bool
 	Version  bool
 }
@@ -41,7 +41,6 @@ type ParseResult struct {
 func Parse(argv []string, cwd string) ParseResult {
 	options := Options{
 		MaxDepth: DefaultMaxDepth,
-		Dir:      cwd,
 	}
 
 	for index := 0; index < len(argv); index++ {
@@ -65,14 +64,14 @@ func Parse(argv []string, cwd string) ParseResult {
 			if !ok {
 				return parseError("Missing value for --dir")
 			}
-			options.Dir = value
+			options.Dirs = append(options.Dirs, value)
 			index++
 		case strings.HasPrefix(arg, "--dir="):
 			value := strings.TrimPrefix(arg, "--dir=")
 			if value == "" {
 				return parseError("Missing value for --dir")
 			}
-			options.Dir = value
+			options.Dirs = append(options.Dirs, value)
 		case arg == "--max-depth":
 			value, ok := nextValue(argv, index)
 			if !ok {
@@ -96,6 +95,9 @@ func Parse(argv []string, cwd string) ParseResult {
 		}
 	}
 
+	if len(options.Dirs) == 0 {
+		options.Dirs = []string{cwd}
+	}
 	return ParseResult{OK: true, Options: options}
 }
 

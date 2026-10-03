@@ -74,7 +74,8 @@ func run(argv []string) error {
 	warnings := &warningCollector{}
 
 	repos, err := discover.DiscoverContext(ctx, discover.Options{
-		Cwd:      options.Dir,
+		Cwd:      cwd,
+		Dirs:     options.Dirs,
 		MaxDepth: options.MaxDepth,
 		Verbose:  options.Verbose,
 		Warn:     warnings.Add,

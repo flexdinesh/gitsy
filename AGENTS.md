@@ -19,33 +19,41 @@ The main entry point is `cmd/gitsy/main.go`. Most behavior lives in focused inte
 Run these from the repo root.
 
 ```bash
+# Set up pinned tools, dependencies, and Git hooks once per clone.
+mise trust
+mise run setup
+
+# Run all local checks before pushing.
+mise run check
+
 # Run the full test suite before and after behavior changes.
-go test ./...
+mise run test
 
 # Build the CLI locally.
-go build -o bin/gitsy ./cmd/gitsy
+mise run build
 
 # Install the local build into your Go bin path.
-go install ./cmd/gitsy
+mise run install
 
 # Try the CLI against the current directory.
-go run ./cmd/gitsy
+mise run run
 
 # Try useful modes while developing.
-go run ./cmd/gitsy --no-fetch
-go run ./cmd/gitsy --verbose
-go run ./cmd/gitsy --sync
+mise run run -- --no-fetch
+mise run run -- --verbose
+mise run run -- --sync
 
 # Keep module files tidy after dependency changes.
-go mod tidy
+mise run tidy
 ```
 
-Use targeted tests while iterating, then run `go test ./...` before calling work done.
+Keep project commands in `mise.toml`; hooks and CI use the same tasks.
+Use targeted tests while iterating, then run `mise run test` before calling work done.
 
 ```bash
-go test ./internal/status
-go test ./internal/tui
-go test ./cmd/gitsy
+mise run test:package ./internal/status
+mise run test:package ./internal/tui
+mise run test:package ./cmd/gitsy
 ```
 
 ## Development Patterns
@@ -82,11 +90,11 @@ This project intentionally keeps dependencies light. Direct UI dependencies are:
 When adding or updating dependencies:
 
 ```bash
-go get github.com/charmbracelet/bubbletea@latest
-go get github.com/charmbracelet/bubbles@latest
-go get github.com/charmbracelet/lipgloss@latest
-go mod tidy
-go test ./...
+mise exec -- go get github.com/charmbracelet/bubbletea@latest
+mise exec -- go get github.com/charmbracelet/bubbles@latest
+mise exec -- go get github.com/charmbracelet/lipgloss@latest
+mise run tidy
+mise run test
 ```
 
 Only add new dependencies when they clearly reduce complexity or match the existing TUI stack.

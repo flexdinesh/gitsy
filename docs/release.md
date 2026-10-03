@@ -2,7 +2,7 @@
 
 Stable releases are SemVer Git tags on `main`, published only by the manual
 **Release** workflow. Every push to `main` runs CI and updates the `dev` branch
-after tests and the build pass.
+after formatting and the build pass.
 
 ## Stable releases
 
@@ -31,8 +31,12 @@ The tap repository owns Homebrew style, strict audit, install, and formula test 
 
 ## Development releases
 
-The **CI** workflow tests and builds every push to `main`, then creates or
-fast-forwards `dev` to that tested commit. Pull requests only run checks.
+The **CI** workflow checks formatting and builds every push to `main`, then
+creates or fast-forwards `dev` to that checked commit. Pull requests only run
+checks. Full validation runs locally in the pre-push hook; manual stable
+releases also run tests, vet, and build checks.
+Both workflows use the tools and tasks in `mise.toml`: routine CI runs `ci`,
+and stable releases run `release:check` before the `release` publishing task.
 Publishing is serialized; older runs skip publishing if `main` has advanced.
 Failed checks leave `dev` at its last published commit.
 
@@ -65,7 +69,7 @@ go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 # Specific release.
 go install github.com/flexdinesh/gitsy/cmd/gitsy@v0.1.0
 
-# Latest tested main (available after the first successful main CI run).
+# Latest CI-checked main (available after the first successful main CI run).
 go install github.com/flexdinesh/gitsy/cmd/gitsy@dev
 ```
 

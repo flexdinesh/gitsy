@@ -21,11 +21,16 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up mise
+        uses: jdx/mise-action@v4
+
+      - name: Cache Go dependencies and builds
+        uses: actions/cache@v4
         with:
-          go-version-file: go.mod
-          cache: true
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-${{ runner.arch }}-go-${{ hashFiles('mise.toml', 'go.sum') }}
 
       - name: Select release version
         id: version
@@ -36,7 +41,7 @@ jobs:
           set -euo pipefail
 
           git fetch --tags --force
-          release_version="$(go run ./tools/release-version)"
+          release_version="$(mise run --quiet release:version)"
           tag_exists=false
           if tag_commit="$(git rev-list -n 1 "$release_version" 2>/dev/null)"; then
             head_commit="$(git rev-parse HEAD)"
@@ -57,14 +62,8 @@ jobs:
           echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
           echo "release_exists=$release_exists" >> "$GITHUB_OUTPUT"
 
-      - name: Test
-        run: go test ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
+      - name: Validate release
+        run: mise run release:check
 
       - name: Create release tag
         if: steps.version.outputs.tag_exists != 'true'
@@ -74,11 +73,7 @@ jobs:
 
       - name: Run GoReleaser
         if: steps.version.outputs.release_exists != 'true'
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
+        run: mise run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -111,14 +106,14 @@ jobs:
 
       - name: Generate Homebrew formula
         run: |
-          go run ./tools/homebrew-formula -- \
+          mise run release:formula -- \
             --version "${{ steps.version.outputs.number }}" \
             --tag "${{ steps.version.outputs.tag }}" \
             --checksums release-dist/checksums.txt \
             --output homebrew-tap/Formula/gitsy.rb
 
       - name: Validate Homebrew formula syntax
-        run: ruby -c homebrew-tap/Formula/gitsy.rb
+        run: mise run release:formula:check homebrew-tap/Formula/gitsy.rb
 
       - name: Open Homebrew tap pull request
         env:

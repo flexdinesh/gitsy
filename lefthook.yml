@@ -1,0 +1,7 @@
+lefthook: mise exec -- lefthook
+
+pre-push:
+  commands:
+    checks:
+      run: mise run pre-push
+      use_stdin: true
