@@ -53,7 +53,8 @@ With `--dir`, only the supplied directories are scanned. `--max-depth` applies
 to each directory; linked worktrees are included wherever they live. Relative
 paths resolve from the current directory.
 
-Repository labels show only the directory name; full paths appear in the sidebar.
+Repository labels use the origin remote's repository name, falling back to the
+directory name when unavailable. Full paths appear in the sidebar.
 
 ## Development
 

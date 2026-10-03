@@ -3,7 +3,9 @@ package discover
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -247,6 +249,25 @@ func displayPath(path string) string {
 	return strings.NewReplacer("\r", "\\r", "\n", "\\n", "\t", "\\t").Replace(path)
 }
 
+func nameFromRemote(remote string) string {
+	if strings.Contains(remote, "://") {
+		parsed, err := url.Parse(remote)
+		if err != nil {
+			return ""
+		}
+		remote = parsed.Path
+	} else if !filepath.IsAbs(remote) {
+		if _, remotePath, ok := strings.Cut(remote, ":"); ok {
+			remote = remotePath
+		}
+	}
+	name := strings.TrimSuffix(path.Base(strings.TrimRight(remote, "/")), ".git")
+	if name == "" || name == "." || name == ".." || name == "/" {
+		return ""
+	}
+	return displayPath(name)
+}
+
 func verifyRepo(ctx context.Context, repoPath string, source RepoSource, warn func(message string)) (Repo, bool) {
 	stats, err := os.Stat(repoPath)
 	if err != nil {
@@ -286,10 +307,17 @@ func verifyRepo(ctx context.Context, repoPath string, source RepoSource, warn fu
 		return Repo{}, false
 	}
 
+	displayName := DisplayNameForPath(repoPath)
+	if origin := git.OriginURLContext(ctx, repoPath); origin.OK {
+		if name := nameFromRemote(strings.TrimSuffix(origin.Stdout, "\x00")); name != "" {
+			displayName = name
+		}
+	}
+
 	return Repo{
 		Path:        repoPath,
 		RealPath:    repoRealPath,
-		DisplayName: DisplayNameForPath(repoPath),
+		DisplayName: displayName,
 		Source:      source,
 	}, true
 }

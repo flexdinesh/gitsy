@@ -64,6 +64,10 @@ func TopLevelContext(ctx context.Context, repoPath string) Result {
 	return RunContext(ctx, repoPath, "rev-parse", "--show-toplevel")
 }
 
+func OriginURLContext(ctx context.Context, repoPath string) Result {
+	return RunContext(ctx, repoPath, "config", "--null", "--get", "remote.origin.url")
+}
+
 func ShortStatus(repoPath string) Result {
 	return ShortStatusContext(context.Background(), repoPath)
 }

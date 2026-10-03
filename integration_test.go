@@ -141,6 +141,68 @@ func TestDiscoverUsesSelectedDirectories(t *testing.T) {
 	}
 }
 
+func TestDiscoverNamesReposFromOrigin(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "servediff", "main")
+	other := filepath.Join(dir, "other", "main")
+	worktree := filepath.Join(t.TempDir(), "feature")
+	for _, path := range []string{repo, other} {
+		mkdirAll(t, path)
+		runGit(t, path, "init", "-q", "-b", "main")
+	}
+	runGit(t, repo, "remote", "add", "origin", "git@github.com:flexdinesh/servediff.git")
+	runGit(t, other, "remote", "add", "origin", "https://example.com/org/another-repo.git")
+	configureGitUser(t, repo)
+	runGit(t, repo, "commit", "--allow-empty", "-qm", "initial")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feature", worktree)
+
+	for _, root := range []string{dir, filepath.Dir(worktree)} {
+		repos, err := discover.Discover(discover.Options{Cwd: root, MaxDepth: 3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]string{repo: "servediff", worktree: "servediff"}
+		if root == dir {
+			want[other] = "another-repo"
+		}
+		if len(repos) != len(want) {
+			t.Fatalf("expected %d repos, got %v", len(want), repos)
+		}
+		for index, found := range repos {
+			if found.DisplayName != want[found.Path] {
+				t.Fatalf("expected label %q for %s, got %q", want[found.Path], found.Path, found.DisplayName)
+			}
+			if index > 0 {
+				previous := repos[index-1]
+				if previous.DisplayName > found.DisplayName || (previous.DisplayName == found.DisplayName && previous.Path > found.Path) {
+					t.Fatalf("repos must sort by name, then path: %v", repos)
+				}
+			}
+		}
+	}
+}
+
+func TestDiscoverFallsBackForUnusableOrigin(t *testing.T) {
+	requireGit(t)
+	for _, origin := range []string{"", "https://example.com", "https://example.com/%zz"} {
+		t.Run(origin, func(t *testing.T) {
+			dir := t.TempDir()
+			repo := filepath.Join(dir, "local-repo")
+			mkdirAll(t, repo)
+			runGit(t, repo, "init", "-q", "-b", "main")
+			runGit(t, repo, "config", "remote.origin.url", origin)
+			repos, err := discover.Discover(discover.Options{Cwd: dir, MaxDepth: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(repos) != 1 || repos[0].DisplayName != "local-repo" {
+				t.Fatalf("expected directory name fallback, got %v", repos)
+			}
+		})
+	}
+}
+
 func TestDiscoversCleanChildReposAndFiltersStatusByChangedFlag(t *testing.T) {
 	requireGit(t)
 	dir := t.TempDir()
