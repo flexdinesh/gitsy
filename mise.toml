@@ -1,5 +1,5 @@
 [tools]
-go = "1.26.8"
+go = "1"
 "aqua:evilmartians/lefthook" = "2.1.16"
 
 [task_config]
