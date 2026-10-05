@@ -181,9 +181,16 @@ func ParseWorktrees(porcelain string) []Worktree {
 	return worktrees
 }
 
-// Revalidate membership and protection immediately before Git's guarded removal.
-func RemoveWorktreeContext(ctx context.Context, mainPath, worktreePath string) Result {
-	fail := func(message string) Result { return Result{Stderr: message, Status: -1} }
+type WorktreeRemovalResult struct {
+	Result
+	NeedsForce bool
+}
+
+// Revalidate membership and protection even when discarding files is confirmed.
+func RemoveWorktreeContext(ctx context.Context, mainPath, worktreePath string, force bool) WorktreeRemovalResult {
+	fail := func(message string) WorktreeRemovalResult {
+		return WorktreeRemovalResult{Result: Result{Stderr: message, Status: -1}}
+	}
 	target, err := filepath.EvalSymlinks(worktreePath)
 	if err != nil {
 		return fail(fmt.Sprintf("resolve worktree: %s", err))
@@ -201,7 +208,7 @@ func RemoveWorktreeContext(ctx context.Context, mainPath, worktreePath string) R
 	}
 	listed := WorktreeListContext(ctx, mainPath)
 	if !listed.OK {
-		return listed
+		return WorktreeRemovalResult{Result: listed}
 	}
 	for index, worktree := range ParseWorktrees(listed.Stdout) {
 		realPath, err := filepath.EvalSymlinks(worktree.Path)
@@ -216,12 +223,19 @@ func RemoveWorktreeContext(ctx context.Context, mainPath, worktreePath string) R
 		}
 		checked := RunContext(ctx, worktree.Path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none")
 		if !checked.OK {
-			return checked
+			return WorktreeRemovalResult{Result: checked}
 		}
-		if checked.Stdout != "" {
-			return fail("Worktree has changed, untracked, or ignored files; commit, stash, or remove them before deleting.")
+		if checked.Stdout != "" && !force {
+			return WorktreeRemovalResult{
+				Result:     Result{Stderr: "Worktree has changed, untracked, or ignored files.", Status: -1},
+				NeedsForce: true,
+			}
 		}
-		return RunContext(ctx, mainPath, "worktree", "remove", "--", worktree.Path)
+		args := []string{"worktree", "remove"}
+		if force {
+			args = append(args, "--force")
+		}
+		return WorktreeRemovalResult{Result: RunContext(ctx, mainPath, append(args, "--", worktree.Path)...)}
 	}
 	return fail("Worktree is no longer registered with this repository.")
 }

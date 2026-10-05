@@ -67,9 +67,10 @@ type Model struct {
 	inactive    navigationState
 	removed     map[string]bool
 	confirm     *discover.Repo
+	force       bool
 	deleting    string
 	notice      string
-	remove      func(context.Context, string, string) git.Result
+	remove      func(context.Context, string, string, bool) git.WorktreeRemovalResult
 
 	tableWidth int
 	tableOuter int
@@ -201,8 +202,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if model.removed == nil {
 				model.removed = map[string]bool{}
 			}
-			model.removed[msg.path] = true
+			model.removed[msg.repo.Path] = true
 			model.notice = "Deleted worktree. Branch kept."
+		} else if msg.result.NeedsForce {
+			model.confirm = &msg.repo
+			model.force = true
+			model.notice = ""
 		} else {
 			model.notice = "Delete failed: " + strings.TrimSpace(msg.result.Stderr)
 			if strings.TrimSpace(msg.result.Stderr) == "" {
@@ -387,7 +392,7 @@ func isQuitKey(message tea.KeyMsg) bool {
 func (model *Model) navigate(message tea.KeyMsg) bool {
 	pressed := message.String()
 	switch pressed {
-	case "tab":
+	case "f":
 		model.expanded = !model.expanded
 		model.browseEmpty = false
 		model.offset = 0
@@ -1058,7 +1063,10 @@ func (model Model) footerPlain(content int) string {
 		if !model.canConfirm() {
 			return truncateCell("esc cancel", content)
 		}
-		return truncateCell("enter delete · esc cancel", content)
+		if model.force {
+			return truncateCell("y force · esc cancel", content)
+		}
+		return truncateCell("y delete · esc cancel", content)
 	}
 	if model.deleting != "" {
 		return truncateCell("Deleting… · q quit", content)
@@ -1068,14 +1076,14 @@ func (model Model) footerPlain(content int) string {
 		position = strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.displayResults()))
 	}
 	hints := []string{
-		"↑/↓ j/k move · ←/→ tabs · tab files · PgUp/PgDn · q quit",
-		"↑/↓ j/k · ←/→ tabs · tab files · q quit",
-		"↑↓ · ←→ tabs · tab files · q",
-		"←→ tabs · q",
+		"↑/↓ j/k move · tab views · f files · PgUp/PgDn · q quit",
+		"↑/↓ j/k · tab views · f files · q quit",
+		"↑↓ · tab views · f files · q",
+		"tab views · q",
 		"q quit",
 	}
 	if model.worktrees {
-		hints = []string{"↑/↓ j/k move · ←/→ tabs · tab files · x delete · q quit", "↑↓ · ←→ tabs · x delete · q quit", "←→ tabs · x delete · q", "←→ · x · q", "q"}
+		hints = []string{"↑/↓ j/k move · tab views · f files · x delete · q quit", "↑↓ · tab views · x delete · q quit", "tab views · x delete · q", "tab · x · q", "q"}
 	}
 	hint := hints[len(hints)-1]
 	for _, option := range hints {

@@ -47,15 +47,15 @@ func TestDenseOverviewAndFileToggle(t *testing.T) {
 		t.Fatal("overview must use exactly one row per repository")
 	}
 	model.selectRepo(3)
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
 	model = updated.(Model)
 	if !model.expanded || model.selected != 3 || !strings.Contains(model.View(), "queue.go") {
-		t.Fatal("Tab must reveal files and preserve selection")
+		t.Fatal("F must reveal files and preserve selection")
 	}
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
 	model = updated.(Model)
 	if model.expanded || model.selected != 3 || len(model.rows) != len(model.results) {
-		t.Fatal("Tab must return to dense overview without changing selection")
+		t.Fatal("F must return to dense overview without changing selection")
 	}
 }
 

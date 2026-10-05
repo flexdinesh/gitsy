@@ -107,7 +107,7 @@ func TestGroupedInspectionsRunOnceAndUpdateEveryAppearance(t *testing.T) {
 	model.width, model.height = 120, 24
 	model.refresh()
 	model.selectRepo(2)
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
 	model = updated.(Model)
 	view := model.View()
 	if model.selected != 2 || strings.Count(view, "modified changed.go") != 3 || strings.Count(view, "synced ↓2") < 3 {
