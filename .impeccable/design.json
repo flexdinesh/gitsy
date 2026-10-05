@@ -338,7 +338,7 @@
       },
       {
         "name": "regular-min-height",
-        "value": "7 terminal rows"
+        "value": "9 terminal rows plus inline action height"
       },
       {
         "name": "context-min-width",
@@ -409,8 +409,8 @@
     {
       "name": "Workspace header",
       "kind": "custom",
-      "description": "Native title, operation mode, and exception summary; static HTML translation.",
-      "html": "<div class=\"ds-terminal\"><b class=\"ds-brand\">gitsy</b>                         <span class=\"ds-muted\">fetch · done</span>\n<span class=\"ds-muted\">12 repos</span> · <span class=\"ds-danger\">1 failed</span> · <span class=\"ds-warning\">3 changed · 2 behind</span></div>",
+      "description": "Native title, operation mode, exception summary, and Repositories/Worktrees tabs; static HTML translation.",
+      "html": "<div class=\"ds-terminal\"><b class=\"ds-brand\">gitsy</b>                         <span class=\"ds-muted\">fetch · done</span>\n<span class=\"ds-muted\">12 repos</span> · <span class=\"ds-danger\">1 failed</span> · <span class=\"ds-warning\">3 changed · 2 behind</span>\n\n<b class=\"ds-brand\">[Repositories]</b>  <span class=\"ds-muted\">Worktrees  ←/→</span></div>",
       "css": ".ds-terminal { font-family: monospace; white-space: pre; color: #243446; } .ds-muted { color: #566B7F; } .ds-brand { color: #176C61; } .ds-warning { color: #895B10; } .ds-danger { color: #AC3439; } .ds-selected { background: #E2EFEB; font-weight: 700; } .ds-rule { color: #C4CDD6; } @media (prefers-color-scheme: dark) { .ds-terminal { color: #D8E2ED; } .ds-muted { color: #8CA2B8; } .ds-brand { color: #63C5B5; } .ds-warning { color: #E5B567; } .ds-danger { color: #EE9298; } .ds-selected { background: #203B3B; } .ds-rule { color: #354555; } }"
     },
     {
@@ -438,8 +438,8 @@
     {
       "name": "Navigation footer",
       "kind": "custom",
-      "description": "Position and key hints compress with available terminal width.",
-      "html": "<div class=\"ds-terminal ds-muted\">3/12        ↑/↓ j/k move · tab files · PgUp/PgDn · q quit</div>",
+      "description": "Position and key hints compress with terminal width; left/right switches tabs, Tab reveals files, and Worktrees adds x delete.",
+      "html": "<div class=\"ds-terminal ds-muted\">3/12        ↑/↓ j/k move · ←/→ tabs · tab files · PgUp/PgDn · q quit</div>",
       "css": ".ds-terminal { font-family: monospace; white-space: pre; color: #243446; } .ds-muted { color: #566B7F; } .ds-brand { color: #176C61; } .ds-warning { color: #895B10; } .ds-danger { color: #AC3439; } .ds-selected { background: #E2EFEB; font-weight: 700; } .ds-rule { color: #C4CDD6; } @media (prefers-color-scheme: dark) { .ds-terminal { color: #D8E2ED; } .ds-muted { color: #8CA2B8; } .ds-brand { color: #63C5B5; } .ds-warning { color: #E5B567; } .ds-danger { color: #EE9298; } .ds-selected { background: #203B3B; } .ds-rule { color: #354555; } }"
     }
   ],

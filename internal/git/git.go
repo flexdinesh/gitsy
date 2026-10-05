@@ -3,8 +3,10 @@ package git
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -137,10 +139,89 @@ func FetchAllContext(ctx context.Context, repoPath string, timeout time.Duration
 
 func ParseWorktreePaths(porcelain string) []string {
 	paths := []string{}
-	for _, line := range strings.Split(porcelain, "\x00") {
-		if strings.HasPrefix(line, "worktree ") {
-			paths = append(paths, strings.TrimPrefix(line, "worktree "))
-		}
+	for _, worktree := range ParseWorktrees(porcelain) {
+		paths = append(paths, worktree.Path)
 	}
 	return paths
+}
+
+type Worktree struct {
+	Path       string
+	MainPath   string
+	Branch     string
+	Detached   bool
+	Locked     bool
+	LockReason string
+}
+
+func ParseWorktrees(porcelain string) []Worktree {
+	worktrees := []Worktree{}
+	for _, field := range strings.Split(porcelain, "\x00") {
+		if strings.HasPrefix(field, "worktree ") {
+			worktrees = append(worktrees, Worktree{Path: strings.TrimPrefix(field, "worktree ")})
+			continue
+		}
+		if len(worktrees) == 0 {
+			continue
+		}
+		worktree := &worktrees[len(worktrees)-1]
+		switch {
+		case strings.HasPrefix(field, "branch "):
+			worktree.Branch = strings.TrimPrefix(field, "branch refs/heads/")
+		case field == "detached":
+			worktree.Detached = true
+		case field == "locked" || strings.HasPrefix(field, "locked "):
+			worktree.Locked = true
+			worktree.LockReason = strings.TrimPrefix(strings.TrimPrefix(field, "locked"), " ")
+		}
+	}
+	for index := range worktrees {
+		worktrees[index].MainPath = worktrees[0].Path
+	}
+	return worktrees
+}
+
+// Revalidate membership and protection immediately before Git's guarded removal.
+func RemoveWorktreeContext(ctx context.Context, mainPath, worktreePath string) Result {
+	fail := func(message string) Result { return Result{Stderr: message, Status: -1} }
+	target, err := filepath.EvalSymlinks(worktreePath)
+	if err != nil {
+		return fail(fmt.Sprintf("resolve worktree: %s", err))
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fail(fmt.Sprintf("resolve current directory: %s", err))
+	}
+	cwd, err = filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return fail(fmt.Sprintf("resolve current directory: %s", err))
+	}
+	if relative, err := filepath.Rel(target, cwd); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fail("Cannot delete the current directory's worktree.")
+	}
+	listed := WorktreeListContext(ctx, mainPath)
+	if !listed.OK {
+		return listed
+	}
+	for index, worktree := range ParseWorktrees(listed.Stdout) {
+		realPath, err := filepath.EvalSymlinks(worktree.Path)
+		if err != nil || realPath != target {
+			continue
+		}
+		if index == 0 {
+			return fail("Cannot delete the main worktree.")
+		}
+		if worktree.Locked {
+			return fail("Worktree is locked; unlock it before deleting.")
+		}
+		checked := RunContext(ctx, worktree.Path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none")
+		if !checked.OK {
+			return checked
+		}
+		if checked.Stdout != "" {
+			return fail("Worktree has changed, untracked, or ignored files; commit, stash, or remove them before deleting.")
+		}
+		return RunContext(ctx, mainPath, "worktree", "remove", "--", worktree.Path)
+	}
+	return fail("Worktree is no longer registered with this repository.")
 }

@@ -25,6 +25,7 @@ type Repo struct {
 	RealPath    string
 	DisplayName string
 	Source      RepoSource
+	Worktree    *git.Worktree
 }
 
 type Group struct {
@@ -236,17 +237,21 @@ func DiscoverGroupedContext(ctx context.Context, options Options) (Workspace, er
 			continue
 		}
 
-		for _, worktreePath := range git.ParseWorktreePaths(result.Stdout) {
-			verified, ok := verifyRepo(ctx, worktreePath, SourceWorktree, warn)
+		for worktreeIndex, worktree := range git.ParseWorktrees(result.Stdout) {
+			verified, ok := verifyRepo(ctx, worktree.Path, SourceWorktree, warn)
 			if ok {
 				for index, group := range scannedMembers {
 					if group[repo.RealPath] {
 						members[index][verified.RealPath] = true
 					}
 				}
-				if _, exists := reposByRealPath[verified.RealPath]; !exists {
-					reposByRealPath[verified.RealPath] = verified
+				if existing, exists := reposByRealPath[verified.RealPath]; exists {
+					verified = existing
 				}
+				if worktreeIndex > 0 {
+					verified.Worktree = &worktree
+				}
+				reposByRealPath[verified.RealPath] = verified
 			}
 		}
 	}

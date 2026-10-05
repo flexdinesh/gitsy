@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/flexdinesh/gitsy/internal/discover"
+	"github.com/flexdinesh/gitsy/internal/git"
 	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/mattn/go-runewidth"
@@ -23,18 +24,19 @@ type inspector func(context.Context, discover.Repo, bool, bool, func(string)) in
 // truncation and styling happen at render time so ANSI codes never
 // pollute width measurement.
 type rowEntry struct {
-	number    string // right-aligned digits only; marker is separate
-	marker    bool   // selected repo's first row shows ›
-	repo      string
-	status    string
-	compact   string
-	divider   bool
-	tone      string
-	bold      bool
-	dim       bool
-	repoIndex int // appearance index; -1 for group headers, dividers and empty states
-	group     string
-	groupSize int
+	number     string // right-aligned digits only; marker is separate
+	marker     bool   // selected repo's first row shows ›
+	repo       string
+	status     string
+	compact    string
+	divider    bool
+	tone       string
+	bold       bool
+	dim        bool
+	repoIndex  int // appearance index; -1 for group headers, dividers and empty states
+	group      string
+	groupSize  int
+	groupLabel string
 }
 
 // Model holds unique results and a viewport over repo appearances: selected
@@ -61,6 +63,13 @@ type Model struct {
 	rows        []rowEntry
 	next        int
 	inspect     inspector
+	worktrees   bool
+	inactive    navigationState
+	removed     map[string]bool
+	confirm     *discover.Repo
+	deleting    string
+	notice      string
+	remove      func(context.Context, string, string) git.Result
 
 	tableWidth int
 	tableOuter int
@@ -118,6 +127,7 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 		spin:     spin,
 		next:     min(maxInspecting, len(repos)),
 		inspect:  inspect,
+		remove:   git.RemoveWorktreeContext,
 		capacity: minTableHeight,
 	}
 }
@@ -143,6 +153,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return model, tea.Quit
 		}
+		if handled, command := model.worktreeKey(msg); handled {
+			return model, command
+		}
 		if model.navigate(msg) {
 			return model, nil
 		}
@@ -157,6 +170,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	case tea.MouseMsg:
+		if model.confirm != nil || model.deleting != "" {
+			return model, nil
+		}
 		if msg.Action == tea.MouseActionPress {
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
@@ -179,6 +195,23 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		model.refresh()
 		return model, model.nextInspectCommands()
+	case worktreeRemovedMsg:
+		model.deleting = ""
+		if msg.result.OK {
+			if model.removed == nil {
+				model.removed = map[string]bool{}
+			}
+			model.removed[msg.path] = true
+			model.notice = "Deleted worktree. Branch kept."
+		} else {
+			model.notice = "Delete failed: " + strings.TrimSpace(msg.result.Stderr)
+			if strings.TrimSpace(msg.result.Stderr) == "" {
+				model.notice = fmt.Sprintf("Delete failed: git exited %d", msg.result.Status)
+			}
+		}
+		model.browseEmpty = false
+		model.refresh()
+		return model, nil
 	case spinner.TickMsg:
 		if model.pending() == 0 {
 			return model, nil
@@ -202,7 +235,7 @@ func (model Model) View() string {
 	if height == 0 {
 		height = 24
 	}
-	if width < minWidth || height < 7 {
+	if width < minWidth || height < 9+model.actionHeight() {
 		return model.compactView(max(1, width), max(1, height))
 	}
 
@@ -211,10 +244,14 @@ func (model Model) View() string {
 	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.displayResults())
 	cols := [3]int{numberWidth, repoWidth, statusWidth}
 	entries := model.tableRows()
-	capacity := tableViewportHeight(height)
+	capacity := model.viewportHeight(height)
 	offset := clamp(model.offset, 0, maxViewportOffset(entries, capacity))
 
-	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected))
+	label := "Repository"
+	if model.worktrees {
+		label = "Worktree"
+	}
+	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected, label))
 	middle := tableBox
 	if infoShown {
 		infoBox := model.renderInfo(infoOuter, lipgloss.Height(tableBox))
@@ -224,30 +261,41 @@ func (model Model) View() string {
 			Render("")
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, tableBox, gap, infoBox)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left,
-		model.renderHeader(width),
-		middle,
-		model.renderFooter(width),
-	)
+	sections := []string{model.renderHeader(width), middle}
+	if action := model.renderAction(width); action != "" {
+		sections = append(sections, action)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, append(sections, model.renderFooter(width))...)
 }
 
 func tableViewportHeight(height int) int {
-	// Header and summary (3), column heading and rule (2), footer (1).
-	return max(1, height-6)
+	// Header, summary and tabs (4), column heading and rule (2), footer (1).
+	return max(1, height-7)
 }
 
 func (model Model) compactView(width, height int) string {
 	lines := []string{model.title()}
-	if len(model.results) == 0 || model.browseEmpty {
-		message := ui.EmptyMessage(0)
+	if len(model.displayResults()) == 0 || model.browseEmpty {
+		message := model.emptyMessage()
 		if model.browseEmpty && len(model.visibleRows()) > 0 {
 			group := model.visibleRows()[0]
+			if group.group == "" {
+				for index := min(model.offset, len(model.rows)-1); index >= 0; index-- {
+					if model.rows[index].group != "" {
+						group = model.rows[index]
+						break
+					}
+				}
+			}
 			lines = append(lines, group.group)
 			if group.groupSize > 0 {
 				message = fmt.Sprintf("%d repos", group.groupSize)
+				if model.worktrees {
+					message = fmt.Sprintf("%d worktrees", group.groupSize)
+				}
 			}
-		} else if len(model.groups) > 0 {
-			lines = append(lines, displayGroupPath(model.groups[0].Path, model.home))
+		} else if groups := model.displayGroups(); len(groups) > 0 {
+			lines = append(lines, displayGroupPath(groups[0].Path, model.home))
 		}
 		lines = append(lines, message)
 	} else {
@@ -255,14 +303,23 @@ func (model Model) compactView(width, height int) string {
 		if group := model.selectedGroup(); group != "" {
 			lines = append(lines, displayGroupPath(group, model.home))
 		}
-		lines = append(lines, iconSelected+" "+result.Repo.DisplayName)
+		name := result.Repo.DisplayName
+		if model.worktrees {
+			name = displayGroupPath(filepath.Base(result.Repo.Path), "")
+		}
+		lines = append(lines, iconSelected+" "+name)
 		for _, row := range ui.RowsForRepo(result) {
 			lines = append(lines, strings.TrimSpace(row.Text))
 		}
 	}
 	if height > 1 {
+		if action := model.actionLines(); len(action) > 0 {
+			lines = action
+		} else {
+			lines = append(lines[:1], append([]string{model.tabPlain()}, lines[1:]...)...)
+		}
 		lines = lines[:min(len(lines), height-1)]
-		lines = append(lines, "↑↓ move · tab files · q quit")
+		lines = append(lines, model.footerPlain(width))
 	} else {
 		lines = lines[:1]
 	}
@@ -335,6 +392,10 @@ func (model *Model) navigate(message tea.KeyMsg) bool {
 		model.browseEmpty = false
 		model.offset = 0
 		model.refresh()
+		if model.expanded {
+			model.offset = max(0, firstRowOf(model.rows, model.selected))
+			model.refresh()
+		}
 	case "up", "k":
 		model.moveRepo(-1)
 	case "down", "j":
@@ -370,7 +431,7 @@ func (model *Model) moveRepo(delta int) {
 }
 
 func (model *Model) selectRepo(index int) {
-	if len(model.results) == 0 {
+	if len(model.displayResults()) == 0 {
 		return
 	}
 	model.selected = clamp(index, 0, len(model.displayResults())-1)
@@ -401,7 +462,7 @@ func (model *Model) refresh() {
 		return
 	}
 	width := max(model.width, minWidth)
-	model.updateTableWithSize(width, tableViewportHeight(model.height))
+	model.updateTableWithSize(width, model.viewportHeight(model.height))
 }
 
 func (model *Model) updateTableWithSize(width int, height int) {
@@ -412,7 +473,7 @@ func (model *Model) updateTableWithSize(width int, height int) {
 	model.colWidths = [3]int{numberWidth, repoWidth, statusWidth}
 	model.rows = model.tableRows()
 	model.capacity = max(1, height)
-	if len(model.results) > 0 {
+	if len(model.displayResults()) > 0 {
 		model.selected = clamp(model.selected, 0, len(model.displayResults())-1)
 	} else {
 		model.selected = 0
@@ -490,11 +551,24 @@ func firstRepoAt(rows []rowEntry, offset int, fallback int) int {
 func (model Model) tableRows() []rowEntry {
 	results := append([]ui.RepoResult(nil), model.displayResults()...)
 	for index := range results {
+		if model.worktrees {
+			results[index].Repo.DisplayName = displayGroupPath(filepath.Base(results[index].Repo.Path), "")
+		}
 		if results[index].Loading {
 			results[index].LoadingText = model.spin.View()
 		}
 	}
 	entries := buildEntries(results, model.selected)
+	if model.worktrees {
+		for index := range entries {
+			entry := &entries[index]
+			if entry.number != "" && results[entry.repoIndex].Repo.Worktree.Locked {
+				entry.status = "locked · " + entry.status
+				entry.compact = "locked · " + entry.compact
+				entry.tone = "yellow"
+			}
+		}
+	}
 	if !model.expanded {
 		compact := make([]rowEntry, 0, len(results))
 		for _, entry := range entries {
@@ -504,15 +578,23 @@ func (model Model) tableRows() []rowEntry {
 		}
 		entries = compact
 	}
-	if len(model.groups) == 0 {
+	groups := model.displayGroups()
+	if len(groups) == 0 {
+		if len(results) == 0 {
+			return []rowEntry{{status: model.emptyMessage(), repoIndex: -1}}
+		}
 		return entries
 	}
 	grouped := []rowEntry{}
 	position := 0
-	for _, group := range model.groups {
-		grouped = append(grouped, rowEntry{group: displayGroupPath(group.Path, model.home), groupSize: len(group.RepoIndexes), repoIndex: -1})
+	for _, group := range groups {
+		label := ""
+		if model.worktrees {
+			label = "worktrees"
+		}
+		grouped = append(grouped, rowEntry{group: displayGroupPath(group.Path, model.home), groupSize: len(group.RepoIndexes), groupLabel: label, repoIndex: -1})
 		if len(group.RepoIndexes) == 0 {
-			grouped = append(grouped, rowEntry{status: ui.EmptyMessage(0), repoIndex: -1})
+			grouped = append(grouped, rowEntry{status: model.emptyMessage(), repoIndex: -1})
 		}
 		end := position + len(group.RepoIndexes)
 		for index, entry := range entries {
@@ -530,10 +612,10 @@ func (model Model) tableRows() []rowEntry {
 
 func (model Model) displayResults() []ui.RepoResult {
 	if len(model.groups) == 0 {
-		return model.results
+		return model.visibleResults()
 	}
 	results := []ui.RepoResult{}
-	for _, group := range model.groups {
+	for _, group := range model.displayGroups() {
 		for _, index := range group.RepoIndexes {
 			results = append(results, model.results[index])
 		}
@@ -548,7 +630,7 @@ func (model Model) selectedResult() ui.RepoResult {
 
 func (model Model) selectedGroup() string {
 	position := 0
-	for _, group := range model.groups {
+	for _, group := range model.displayGroups() {
 		position += len(group.RepoIndexes)
 		if model.selected < position {
 			return group.Path
@@ -703,13 +785,17 @@ func (model Model) renderHeader(width int) string {
 	if len(lines) == 1 {
 		lines = append(lines, "")
 	}
-	return headerBarStyle(width).Render(title + "\n" + strings.Join(lines, "\n"))
+	return headerBarStyle(width).Render(title + "\n" + strings.Join(lines, "\n") + "\n" + model.renderTabs(content))
 }
 
 func (model Model) title() string {
-	title := ui.Title(model.results, len(model.results))
-	if len(model.displayResults()) > len(model.results) {
-		title = strings.Replace(title, fmt.Sprintf("%d repos", len(model.results)), fmt.Sprintf("%d unique repos", len(model.results)), 1)
+	results := model.visibleResults()
+	title := ui.Title(results, len(results))
+	if len(model.displayResults()) > len(results) {
+		title = strings.Replace(title, fmt.Sprintf("%d repos", len(results)), fmt.Sprintf("%d unique repos", len(results)), 1)
+	}
+	if model.worktrees {
+		title = strings.Replace(title, "repos", "worktrees", 1)
 	}
 	return title
 }
@@ -741,19 +827,35 @@ func (model Model) renderInfo(infoOuter int, boxHeight int) string {
 }
 
 func (model Model) infoLines(width int) []string {
+	label := "Selected repository"
+	if model.worktrees {
+		label = "Selected worktree"
+	}
 	lines := []string{
-		columnHeaderStyle().Render(truncateCell("Selected repository", width)),
+		columnHeaderStyle().Render(truncateCell(label, width)),
 		dividerStyle().Render(strings.Repeat("─", max(1, width))),
 	}
 	if model.browseEmpty {
-		return append(lines, "", "No repositories in view.")
+		return append(lines, "", truncateCell(model.emptyMessage(), width))
 	}
-	if len(model.results) == 0 {
-		return append(lines, "", "Scan a directory containing", "Git repositories.")
+	if len(model.displayResults()) == 0 {
+		lines = append(lines, "")
+		return append(lines, wrapPlain(model.emptyMessage(), width)...)
 	}
 	result := model.selectedResult()
-	lines = append(lines, "", headerTitleStyle().Render(truncateCell(result.Repo.DisplayName, width)))
+	name := result.Repo.DisplayName
+	if model.worktrees {
+		name = displayGroupPath(filepath.Base(result.Repo.Path), "")
+	}
+	lines = append(lines, "", headerTitleStyle().Render(truncateCell(name, width)))
 	lines = append(lines, wrapInfo(result.Repo.Path, width, textLo)...)
+	if worktree := result.Repo.Worktree; model.worktrees && worktree != nil {
+		lines = append(lines, "", infoSectionStyle().Render("Repository"))
+		lines = append(lines, wrapInfo(displayGroupPath(worktree.MainPath, model.home), width, textLo)...)
+		if worktree.Locked {
+			lines = append(lines, wrapInfo("Locked: "+worktree.LockReason, width, warning)...)
+		}
+	}
 	if branch := result.Status.Branch; branch != nil {
 		lines = append(lines, "", infoSectionStyle().Render("Branch"))
 		name := branch.Name
@@ -790,11 +892,15 @@ func layoutWidths(termWidth int) (tableOuter int, infoOuter int, infoShown bool)
 // renderTableBody draws a real table: column header, full-width rule,
 // then the visible window of rows. Plain text is measured first, styles
 // applied last, so ANSI never affects layout.
-func renderTableBody(entries []rowEntry, cols [3]int, offset int, capacity int, selected int) string {
+func renderTableBody(entries []rowEntry, cols [3]int, offset int, capacity int, selected int, labels ...string) string {
 	numberWidth, repoWidth, statusWidth := cols[0], cols[1], cols[2]
+	label := "Repository"
+	if len(labels) > 0 {
+		label = labels[0]
+	}
 	gap := strings.Repeat(" ", columnGap)
 	header := padCell(truncateCell("#", numberWidth), numberWidth) + gap +
-		padCell(truncateCell("Repository", repoWidth), repoWidth) + gap +
+		padCell(truncateCell(label, repoWidth), repoWidth) + gap +
 		padCell(truncateCell("Branch / status", statusWidth), statusWidth)
 	lines := []string{
 		columnHeaderStyle().Render(header),
@@ -864,6 +970,9 @@ func renderRow(entry rowEntry, cols [3]int, selected int) string {
 		count := fmt.Sprintf("%d repos", entry.groupSize)
 		if entry.groupSize == 1 {
 			count = "1 repo"
+		}
+		if entry.groupLabel != "" {
+			count = fmt.Sprintf("%d %s", entry.groupSize, entry.groupLabel)
 		}
 		if width < runewidth.StringWidth(count)+4 {
 			return infoSectionStyle().Render(padCell(truncateCell(entry.group, width), width))
@@ -945,16 +1054,28 @@ func (model Model) renderFooter(width int) string {
 }
 
 func (model Model) footerPlain(content int) string {
+	if model.confirm != nil {
+		if !model.canConfirm() {
+			return truncateCell("esc cancel", content)
+		}
+		return truncateCell("enter delete · esc cancel", content)
+	}
+	if model.deleting != "" {
+		return truncateCell("Deleting… · q quit", content)
+	}
 	position := ""
-	if len(model.results) > 0 && !model.browseEmpty {
+	if len(model.displayResults()) > 0 && !model.browseEmpty {
 		position = strconv.Itoa(model.selected+1) + "/" + strconv.Itoa(len(model.displayResults()))
 	}
 	hints := []string{
-		"↑/↓ j/k move · tab files · PgUp/PgDn · q quit",
-		"↑/↓ j/k · tab files · q quit",
-		"↑↓ · tab files · q",
-		"tab files · q",
+		"↑/↓ j/k move · ←/→ tabs · tab files · PgUp/PgDn · q quit",
+		"↑/↓ j/k · ←/→ tabs · tab files · q quit",
+		"↑↓ · ←→ tabs · tab files · q",
+		"←→ tabs · q",
 		"q quit",
+	}
+	if model.worktrees {
+		hints = []string{"↑/↓ j/k move · ←/→ tabs · tab files · x delete · q quit", "↑↓ · ←→ tabs · x delete · q quit", "←→ tabs · x delete · q", "←→ · x · q", "q"}
 	}
 	hint := hints[len(hints)-1]
 	for _, option := range hints {
