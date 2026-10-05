@@ -45,7 +45,8 @@ gitsy --help
 gitsy --version
 ```
 
-Use `↑/↓` or `j/k` to select repositories, `Tab` to toggle file details,
+Use `←/→` to switch **Repositories** / **Worktrees**, `↑/↓` or `j/k` to
+select rows, `Tab` to toggle file details,
 `PgUp/PgDn` or the mouse wheel to scroll, and `q` to quit. Wide terminals
 show context for the selected repository. Colors adapt to light and dark themes.
 
@@ -58,6 +59,14 @@ Without `--dir`, the current directory is the group. Groups stay expanded;
 navigation skips directory headers. Repositories found through overlapping
 directories appear in each group, while fetch, status and sync run once per
 unique repository. Linked worktrees appear in each group that discovers them.
+
+The **Worktrees** tab lists linked worktrees from the same scan, including those
+outside the supplied directories. Main checkouts remain in **Repositories**.
+Press `x` or `X` on a worktree, review its path, then `Enter` to delete or `Esc`
+to cancel. Deletion keeps the branch and removes the row from both tabs.
+Inspection must finish first; locked worktrees, the current directory's worktree,
+and worktrees with changed, untracked, or ignored files cannot be deleted.
+Resolve the reported problem before retrying. Removal never uses force.
 
 Repository labels use the origin remote's repository name, falling back to the
 directory name when unavailable. Full paths appear in the sidebar.

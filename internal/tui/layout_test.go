@@ -83,8 +83,8 @@ func TestNarrowHeaderKeepsExceptionCounts(t *testing.T) {
 			t.Fatalf("narrow header lost %q: %s", label, header)
 		}
 	}
-	if lipgloss.Width(header) > 40 || lipgloss.Height(header) != 3 {
-		t.Fatal("summary must fit existing header budget")
+	if lipgloss.Width(header) > 40 || lipgloss.Height(header) != 4 {
+		t.Fatal("summary and tabs must fit header budget")
 	}
 }
 

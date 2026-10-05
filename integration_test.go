@@ -57,6 +57,12 @@ func TestGroupedDiscoveryPreservesRootsAndSharedWorktrees(t *testing.T) {
 			}
 			seen := map[string]bool{}
 			for _, repo := range workspace.Repos {
+				if repo.RealPath == linked && (repo.Worktree == nil || repo.Worktree.MainPath != api || repo.Worktree.Branch != "linked") {
+					t.Fatalf("linked worktree identity lost: %+v", repo)
+				}
+				if repo.RealPath == api && repo.Worktree != nil {
+					t.Fatal("main repository must not be marked linked")
+				}
 				if seen[repo.RealPath] {
 					t.Fatalf("inspection list duplicates %s", repo.RealPath)
 				}

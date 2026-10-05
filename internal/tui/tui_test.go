@@ -253,8 +253,8 @@ func TestMouseWheelScrollsWithinRepoDetails(t *testing.T) {
 	})
 	model = updated.(Model)
 
-	if model.selected != 0 || model.offset != 1 {
-		t.Fatalf("expected wheel to pan to offset 1 on same repo, got repo %d at offset %d", model.selected+1, model.offset)
+	if model.selected != 0 || model.offset != 2 {
+		t.Fatalf("expected wheel to pan to offset 2 on same repo, got repo %d at offset %d", model.selected+1, model.offset)
 	}
 	if view := model.View(); !strings.Contains(view, "three.go") {
 		t.Fatalf("expected scrolled detail row, got %q", view)

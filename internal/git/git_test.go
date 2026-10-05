@@ -67,6 +67,111 @@ func TestParseWorktreePathsPreservesSpecialCharacters(t *testing.T) {
 	}
 }
 
+func TestParseWorktreesRetainsProtectionAndBranch(t *testing.T) {
+	got := ParseWorktrees("worktree /repo/main\x00HEAD abc\x00branch refs/heads/main\x00\x00worktree /repo/日本語\nlinked\x00HEAD abc\x00detached\x00locked travel\nreason\x00\x00worktree /repo/feature\x00branch refs/heads/feat/auth\x00locked\x00\x00")
+	want := []Worktree{
+		{Path: "/repo/main", MainPath: "/repo/main", Branch: "main"},
+		{Path: "/repo/日本語\nlinked", MainPath: "/repo/main", Detached: true, Locked: true, LockReason: "travel\nreason"},
+		{Path: "/repo/feature", MainPath: "/repo/main", Branch: "feat/auth", Locked: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestRemoveWorktreeProtectsFilesAndKeepsBranch(t *testing.T) {
+	for _, state := range []string{"clean", "untracked", "ignored", "modified", "locked", "main", "unregistered", "current", "current child", "canceled"} {
+		t.Run(state, func(t *testing.T) {
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+			directory := t.TempDir()
+			mainPath := filepath.Join(directory, "main")
+			linked := filepath.Join(directory, "linked space")
+			mustGit := func(cwd string, args ...string) {
+				t.Helper()
+				if result := Run(cwd, args...); !result.OK {
+					t.Fatal(result.Stderr)
+				}
+			}
+			mustGit(directory, "init", "-q", "-b", "main", mainPath)
+			if err := os.WriteFile(filepath.Join(mainPath, "tracked"), []byte("original"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			mustGit(mainPath, "add", "tracked")
+			mustGit(mainPath, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "initial")
+			mustGit(mainPath, "worktree", "add", "-q", "-b", "feature", linked)
+			target := linked
+			ctx := context.Background()
+			switch state {
+			case "untracked", "modified", "ignored":
+				name := "untracked"
+				if state == "modified" {
+					name = "tracked"
+				}
+				if state == "ignored" {
+					if err := os.WriteFile(filepath.Join(mainPath, ".git", "info", "exclude"), []byte("untracked\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(linked, name), []byte("keep me"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "locked":
+				mustGit(mainPath, "worktree", "lock", linked)
+			case "main":
+				target = mainPath
+			case "unregistered":
+				target = t.TempDir()
+			case "current", "current child":
+				cwd := linked
+				if state == "current child" {
+					cwd = filepath.Join(linked, "child")
+					if err := os.Mkdir(cwd, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				t.Chdir(cwd)
+			case "canceled":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			result := RemoveWorktreeContext(ctx, mainPath, target)
+			if result.OK != (state == "clean") {
+				t.Fatalf("unexpected removal result: %+v", result)
+			}
+			_, err := os.Stat(target)
+			if state == "clean" {
+				if !os.IsNotExist(err) {
+					t.Fatalf("worktree still exists: %v", err)
+				}
+				if result := ResolveCommitContext(ctx, mainPath, "feature"); !result.OK {
+					t.Fatal("removal deleted branch")
+				}
+			} else if err != nil {
+				t.Fatalf("protected directory lost: %v", err)
+			}
+			switch state {
+			case "locked":
+				mustGit(mainPath, "worktree", "unlock", linked)
+			case "untracked", "ignored":
+				if err := os.Remove(filepath.Join(linked, "untracked")); err != nil {
+					t.Fatal(err)
+				}
+			case "modified":
+				if err := os.WriteFile(filepath.Join(linked, "tracked"), []byte("original"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				return
+			}
+			if result := RemoveWorktreeContext(ctx, mainPath, linked); !result.OK {
+				t.Fatalf("retry after cleanup/unlock failed: %+v", result)
+			}
+		})
+	}
+}
+
 func TestShortStatusContextReturnsTimeoutResult(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
