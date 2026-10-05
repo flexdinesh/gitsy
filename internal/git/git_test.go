@@ -80,8 +80,12 @@ func TestParseWorktreesRetainsProtectionAndBranch(t *testing.T) {
 }
 
 func TestRemoveWorktreeProtectsFilesAndKeepsBranch(t *testing.T) {
-	for _, state := range []string{"clean", "untracked", "ignored", "modified", "locked", "main", "unregistered", "current", "current child", "canceled"} {
-		t.Run(state, func(t *testing.T) {
+	for _, scenario := range []string{
+		"clean", "untracked", "ignored", "modified", "locked", "main", "unregistered", "current", "current child", "canceled",
+		"force clean", "force untracked", "force ignored", "force modified", "force locked", "force main", "force unregistered", "force current", "force current child", "force canceled",
+	} {
+		state, force := strings.CutPrefix(scenario, "force ")
+		t.Run(scenario, func(t *testing.T) {
 			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 			directory := t.TempDir()
@@ -136,18 +140,24 @@ func TestRemoveWorktreeProtectsFilesAndKeepsBranch(t *testing.T) {
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			}
-			result := RemoveWorktreeContext(ctx, mainPath, target)
-			if result.OK != (state == "clean") {
+			result := RemoveWorktreeContext(ctx, mainPath, target, force)
+			dirty := state == "untracked" || state == "ignored" || state == "modified"
+			wantRemoved := state == "clean" || force && dirty
+			if result.NeedsForce != (dirty && !force) {
+				t.Fatalf("only changed files should offer force confirmation: %+v", result)
+			}
+			if result.OK != wantRemoved {
 				t.Fatalf("unexpected removal result: %+v", result)
 			}
 			_, err := os.Stat(target)
-			if state == "clean" {
+			if wantRemoved {
 				if !os.IsNotExist(err) {
 					t.Fatalf("worktree still exists: %v", err)
 				}
 				if result := ResolveCommitContext(ctx, mainPath, "feature"); !result.OK {
 					t.Fatal("removal deleted branch")
 				}
+				return
 			} else if err != nil {
 				t.Fatalf("protected directory lost: %v", err)
 			}
@@ -165,7 +175,7 @@ func TestRemoveWorktreeProtectsFilesAndKeepsBranch(t *testing.T) {
 			default:
 				return
 			}
-			if result := RemoveWorktreeContext(ctx, mainPath, linked); !result.OK {
+			if result := RemoveWorktreeContext(ctx, mainPath, linked, false); !result.OK {
 				t.Fatalf("retry after cleanup/unlock failed: %+v", result)
 			}
 		})

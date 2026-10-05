@@ -383,7 +383,7 @@ func TestInfoPanelFollowsSelection(t *testing.T) {
 	got := updated.(Model)
 
 	view := got.View()
-	for _, tip := range []string{"Selected repository", "/tmp/repo-a", "Status", "tab files"} {
+	for _, tip := range []string{"Selected repository", "/tmp/repo-a", "Status", "f files"} {
 		if !strings.Contains(view, tip) {
 			t.Fatalf("expected info tip %q in view:\n%s", tip, view)
 		}

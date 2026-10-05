@@ -33,6 +33,10 @@ func worktreeTestModel() Model {
 func keyModel(model Model, key string) (Model, tea.Cmd) {
 	message := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 	switch key {
+	case "tab":
+		message = tea.KeyMsg{Type: tea.KeyTab}
+	case "shift+tab":
+		message = tea.KeyMsg{Type: tea.KeyShiftTab}
 	case "right":
 		message = tea.KeyMsg{Type: tea.KeyRight}
 	case "enter":
@@ -49,7 +53,7 @@ func keyModel(model Model, key string) (Model, tea.Cmd) {
 func TestWorktreeTabFiltersAndRestoresSelection(t *testing.T) {
 	model := worktreeTestModel()
 	model.selectRepo(2)
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	if !model.worktrees || len(model.visibleResults()) != 1 || len(model.displayResults()) != 2 || model.selected != 0 {
 		t.Fatalf("worktree tab must share overlapping groups: %+v", model.displayResults())
 	}
@@ -57,11 +61,11 @@ func TestWorktreeTabFiltersAndRestoresSelection(t *testing.T) {
 		t.Fatal(view)
 	}
 	model, _ = keyModel(model, "down")
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	if model.worktrees || model.selected != 2 {
 		t.Fatal("repository selection lost")
 	}
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	if model.selected != 1 {
 		t.Fatal("worktree selection lost")
 	}
@@ -71,24 +75,24 @@ func TestWorktreeDeleteConfirmsExactTargetAndUpdatesBothTabs(t *testing.T) {
 	model := worktreeTestModel()
 	path := model.results[1].Repo.Path
 	calls := 0
-	model.remove = func(ctx context.Context, owner, target string) git.Result {
+	model.remove = func(ctx context.Context, owner, target string, force bool) git.WorktreeRemovalResult {
 		calls++
-		if owner != model.results[0].Repo.Path || target != path {
+		if owner != model.results[0].Repo.Path || target != path || force {
 			t.Fatalf("wrong deletion target: %s, %s", owner, target)
 		}
-		return git.Result{OK: true}
+		return git.WorktreeRemovalResult{Result: git.Result{OK: true}}
 	}
 	model, command := keyModel(model, "x")
 	if command != nil || model.confirm != nil {
 		t.Fatal("X must only act in Worktrees")
 	}
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	model, command = keyModel(model, "X")
 	if command != nil || model.confirm == nil || calls != 0 || !strings.Contains(model.View(), path) {
 		t.Fatal("X must show target without deleting")
 	}
 	model, _ = keyModel(model, "down")
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	if !model.worktrees || model.selected != 0 {
 		t.Fatal("confirmation must freeze selection")
 	}
@@ -97,9 +101,9 @@ func TestWorktreeDeleteConfirmsExactTargetAndUpdatesBothTabs(t *testing.T) {
 		t.Fatal("Esc must cancel")
 	}
 	model, _ = keyModel(model, "x")
-	model, command = keyModel(model, "enter")
+	model, command = keyModel(model, "y")
 	if command == nil || model.deleting != path || calls != 0 {
-		t.Fatal("Enter must start async removal")
+		t.Fatal("Y must start async removal")
 	}
 	model, ignored := keyModel(model, "x")
 	if ignored != nil {
@@ -110,7 +114,7 @@ func TestWorktreeDeleteConfirmsExactTargetAndUpdatesBothTabs(t *testing.T) {
 	if calls != 1 || len(model.displayResults()) != 0 || model.deleting != "" || !strings.Contains(model.View(), "Branch kept") {
 		t.Fatal("deletion must remove all appearances and acknowledge success")
 	}
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	if len(model.visibleResults()) != 1 || len(model.displayResults()) != 1 || model.selected != 0 {
 		t.Fatal("removed worktree must disappear from Repositories and clamp selection")
 	}
@@ -130,7 +134,7 @@ func TestWorktreeDeletionChecksFreshStateAndAllowsRecovery(t *testing.T) {
 			case "dirty":
 				model.results[1].Status = status.Parse("## feature\n?? untracked\n")
 			}
-			model, _ = keyModel(model, "right")
+			model, _ = keyModel(model, "tab")
 			model, command := keyModel(model, "x")
 			if state == "loading" {
 				if command != nil || model.confirm != nil || model.notice == "" {
@@ -139,10 +143,10 @@ func TestWorktreeDeletionChecksFreshStateAndAllowsRecovery(t *testing.T) {
 				return
 			}
 			protected := true
-			model.remove = func(context.Context, string, string) git.Result {
-				return git.Result{OK: !protected, Stderr: "Worktree is protected"}
+			model.remove = func(context.Context, string, string, bool) git.WorktreeRemovalResult {
+				return git.WorktreeRemovalResult{Result: git.Result{OK: !protected, Stderr: "Worktree is protected"}}
 			}
-			model, command = keyModel(model, "enter")
+			model, command = keyModel(model, "y")
 			if command == nil {
 				t.Fatal("confirmed deletion must check fresh Git state")
 			}
@@ -153,7 +157,7 @@ func TestWorktreeDeletionChecksFreshStateAndAllowsRecovery(t *testing.T) {
 			}
 			protected = false
 			model, _ = keyModel(model, "x")
-			model, command = keyModel(model, "enter")
+			model, command = keyModel(model, "y")
 			if command == nil {
 				t.Fatal("external cleanup must permit retry despite cached status")
 			}
@@ -165,11 +169,110 @@ func TestWorktreeDeletionChecksFreshStateAndAllowsRecovery(t *testing.T) {
 	}
 }
 
+func TestTabSwitchPreservesDensity(t *testing.T) {
+	for _, key := range []string{"tab", "shift+tab", "right"} {
+		for _, expanded := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/files=%t", key, expanded), func(t *testing.T) {
+				model := worktreeTestModel()
+				model.expanded = expanded
+				model, _ = keyModel(model, key)
+				if !model.worktrees || model.expanded != expanded {
+					t.Fatal("switching views must preserve file density")
+				}
+				model, _ = keyModel(model, "f")
+				if !model.worktrees || model.expanded == expanded {
+					t.Fatal("F must toggle files without switching views")
+				}
+			})
+		}
+	}
+}
+
+func TestWorktreeForceDeleteRequiresSecondConfirmation(t *testing.T) {
+	for _, cancel := range []string{"", "esc", "n", "N"} {
+		t.Run("cancel="+cancel, func(t *testing.T) {
+			model := worktreeTestModel()
+			target := model.results[1].Repo
+			calls := 0
+			model.remove = func(_ context.Context, owner, path string, force bool) git.WorktreeRemovalResult {
+				calls++
+				if owner != target.Worktree.MainPath || path != target.Path || force != (calls == 2) {
+					t.Fatal("must revalidate same target, forcing only on second Y")
+				}
+				if !force {
+					return git.WorktreeRemovalResult{NeedsForce: true}
+				}
+				return git.WorktreeRemovalResult{Result: git.Result{OK: true}}
+			}
+			model, _ = keyModel(model, "tab")
+			model, _ = keyModel(model, "x")
+			model, command := keyModel(model, "enter")
+			if command != nil || model.confirm == nil {
+				t.Fatal("Enter must not confirm deletion")
+			}
+			model, command = keyModel(model, "y")
+			updated, _ := model.Update(command())
+			model = updated.(Model)
+			view := model.View()
+			if calls != 1 || model.confirm == nil || !model.force || model.deleting != "" ||
+				!strings.Contains(view, target.Path) || !strings.Contains(view, "Discards changed, untracked, and ignored files") ||
+				!strings.Contains(view, "y force") || len(model.visibleResults()) != 1 {
+				t.Fatalf("changed files must show second warning and retain target: %s", view)
+			}
+			for _, key := range []string{"tab", "down", "f", "x", "enter"} {
+				model, command = keyModel(model, key)
+				if command != nil || !model.worktrees || model.selected != 0 || !model.force || model.confirm == nil {
+					t.Fatal("second confirmation must freeze navigation and ignore unrelated keys")
+				}
+			}
+			if cancel != "" {
+				model, _ = keyModel(model, cancel)
+				if model.confirm != nil || model.force || calls != 1 || len(model.visibleResults()) != 1 {
+					t.Fatal("cancellation must preserve worktree and clear force")
+				}
+				model, _ = keyModel(model, "x")
+				model, command = keyModel(model, "y")
+				if command == nil || model.force {
+					t.Fatal("retry must start with normal deletion")
+				}
+				return
+			}
+			model, command = keyModel(model, "Y")
+			if command == nil || calls != 1 {
+				t.Fatal("second Y must start async force deletion")
+			}
+			updated, _ = model.Update(command())
+			model = updated.(Model)
+			if calls != 2 || len(model.displayResults()) != 0 || model.force || model.confirm != nil {
+				t.Fatal("force deletion must remove all appearances")
+			}
+		})
+	}
+}
+
+func TestForceConfirmationRequiresVisibleWarningAndPath(t *testing.T) {
+	model := worktreeTestModel()
+	model.width, model.height = 20, 6
+	model, _ = keyModel(model, "tab")
+	model, _ = keyModel(model, "x")
+	model.force = true
+	model, command := keyModel(model, "y")
+	if command != nil || model.canConfirm() || !strings.Contains(model.View(), "Enlarge terminal") {
+		t.Fatal("force confirmation must wait until full warning and path fit")
+	}
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
+	model = updated.(Model)
+	if !model.canConfirm() || strings.Join(model.actionLines(), "") !=
+		"Force delete worktree? Discards changed, untracked, and ignored files. Branch kept."+model.confirm.Path {
+		t.Fatal("resize must reveal complete warning and path")
+	}
+}
+
 func TestWorktreeContextMatchesSelectedIdentity(t *testing.T) {
 	model := worktreeTestModel()
 	model.results[1].Repo.DisplayName = "origin-name"
 	model.results[1].Repo.Path = "/workspace/feature-auth"
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	info := strings.Join(model.infoLines(30), "\n")
 	if !strings.Contains(info, "feature-auth") || strings.Contains(info, "origin-name") {
 		t.Fatal("worktree context must match row identity")
@@ -178,10 +281,12 @@ func TestWorktreeContextMatchesSelectedIdentity(t *testing.T) {
 
 func TestWorktreeRemovalErrorRetainsRowAndAllowsRetry(t *testing.T) {
 	model := worktreeTestModel()
-	model.remove = func(context.Context, string, string) git.Result { return git.Result{Stderr: "worktree has changes"} }
-	model, _ = keyModel(model, "right")
+	model.remove = func(context.Context, string, string, bool) git.WorktreeRemovalResult {
+		return git.WorktreeRemovalResult{Result: git.Result{Stderr: "worktree has changes"}}
+	}
+	model, _ = keyModel(model, "tab")
 	model, _ = keyModel(model, "x")
-	model, command := keyModel(model, "enter")
+	model, command := keyModel(model, "y")
 	updated, _ := model.Update(command())
 	model = updated.(Model)
 	if len(model.visibleResults()) != 1 || !strings.Contains(model.View(), "Delete failed: worktree has changes") {
@@ -197,9 +302,9 @@ func TestWorktreeConfirmationRequiresVisiblePath(t *testing.T) {
 	model := worktreeTestModel()
 	model.results[1].Repo.Path = "/workspace/" + strings.Repeat("long-directory/", 12) + "target"
 	model.width, model.height = 20, 6
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	model, _ = keyModel(model, "x")
-	model, command := keyModel(model, "enter")
+	model, command := keyModel(model, "y")
 	if command != nil || model.confirm == nil || !strings.Contains(model.View(), "Enlarge terminal") {
 		t.Fatal("must not confirm deletion with a hidden target")
 	}
@@ -212,11 +317,11 @@ func TestWorktreeConfirmationRequiresVisiblePath(t *testing.T) {
 
 func TestWorktreeViewsFitTerminals(t *testing.T) {
 	for _, size := range [][2]int{{1, 1}, {20, 6}, {31, 10}, {32, 7}, {40, 10}, {80, 24}, {120, 24}} {
-		for _, state := range []string{"ready", "loading", "dirty", "failed", "stale", "sync", "locked", "empty", "confirm", "deleting", "error"} {
+		for _, state := range []string{"ready", "loading", "dirty", "failed", "stale", "sync", "locked", "empty", "confirm", "force", "deleting", "error"} {
 			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], state), func(t *testing.T) {
 				model := worktreeTestModel()
 				model.width, model.height = size[0], size[1]
-				model, _ = keyModel(model, "right")
+				model, _ = keyModel(model, "tab")
 				switch state {
 				case "loading":
 					model.results[1].Loading = true
@@ -232,8 +337,9 @@ func TestWorktreeViewsFitTerminals(t *testing.T) {
 					model.results[1].Repo.Worktree.Locked = true
 				case "empty":
 					model.results[1].Repo.Worktree = nil
-				case "confirm":
+				case "confirm", "force":
 					model, _ = keyModel(model, "x")
+					model.force = state == "force"
 				case "deleting":
 					model.deleting = model.results[1].Repo.Path
 				case "error":
@@ -252,7 +358,7 @@ func TestWorktreeViewsFitTerminals(t *testing.T) {
 func TestWorktreesWithoutGroups(t *testing.T) {
 	model := worktreeTestModel()
 	model.groups = nil
-	model, _ = keyModel(model, "right")
+	model, _ = keyModel(model, "tab")
 	if len(model.displayResults()) != 1 {
 		t.Fatal("ungrouped models must filter linked worktrees")
 	}
@@ -277,7 +383,7 @@ func TestRenderWorktreePreviews(t *testing.T) {
 	captures := map[string]string{}
 	for _, theme := range []string{"dark", "light"} {
 		lipgloss.SetHasDarkBackground(theme == "dark")
-		for _, mode := range []string{"wide", "narrow", "compact", "confirm", "confirm-narrow", "empty", "error", "loading", "deleting"} {
+		for _, mode := range []string{"wide", "narrow", "compact", "confirm", "confirm-narrow", "force", "force-narrow", "force-compact", "empty", "error", "loading", "deleting"} {
 			model := previewModel()
 			model.width, model.height = 120, 24
 			for index := range model.results {
@@ -291,10 +397,10 @@ func TestRenderWorktreePreviews(t *testing.T) {
 				{Path: "/workspace/personal", RepoIndexes: []int{4, 5, 6, 7}},
 			}
 			model.worktrees = true
-			if mode == "narrow" || mode == "confirm-narrow" {
+			if mode == "narrow" || mode == "confirm-narrow" || mode == "force-narrow" {
 				model.width, model.height = 40, 16
 			}
-			if mode == "compact" {
+			if mode == "compact" || mode == "force-compact" {
 				model.width, model.height = 28, 6
 			}
 			if mode == "empty" {
@@ -302,8 +408,9 @@ func TestRenderWorktreePreviews(t *testing.T) {
 					model.results[index].Repo.Worktree = nil
 				}
 			}
-			if mode == "confirm" || mode == "confirm-narrow" {
+			if mode == "confirm" || mode == "confirm-narrow" || strings.HasPrefix(mode, "force") {
 				model.confirm = &model.results[1].Repo
+				model.force = strings.HasPrefix(mode, "force")
 				model.selected = 1
 			}
 			if mode == "error" {

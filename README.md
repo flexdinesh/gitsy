@@ -45,8 +45,8 @@ gitsy --help
 gitsy --version
 ```
 
-Use `←/→` to switch **Repositories** / **Worktrees**, `↑/↓` or `j/k` to
-select rows, `Tab` to toggle file details,
+Use `Tab` to switch **Repositories** / **Worktrees**, `↑/↓` or `j/k` to
+select rows, `f` to toggle file details,
 `PgUp/PgDn` or the mouse wheel to scroll, and `q` to quit. Wide terminals
 show context for the selected repository. Colors adapt to light and dark themes.
 
@@ -62,11 +62,12 @@ unique repository. Linked worktrees appear in each group that discovers them.
 
 The **Worktrees** tab lists linked worktrees from the same scan, including those
 outside the supplied directories. Main checkouts remain in **Repositories**.
-Press `x` or `X` on a worktree, review its path, then `Enter` to delete or `Esc`
+Press `x` or `X` on a worktree, review its path, then `y` to delete or `Esc`
 to cancel. Deletion keeps the branch and removes the row from both tabs.
-Inspection must finish first; locked worktrees, the current directory's worktree,
-and worktrees with changed, untracked, or ignored files cannot be deleted.
-Resolve the reported problem before retrying. Removal never uses force.
+Inspection must finish first; main, locked, and current-directory worktrees
+remain protected. Changed, untracked, or ignored files trigger a second warning;
+press `y` again to force deletion and discard those files, or `Esc`/`n` to cancel.
+Both attempts check fresh Git state. Left/right and Shift+Tab also switch views.
 
 Repository labels use the origin remote's repository name, falling back to the
 directory name when unavailable. Full paths appear in the sidebar.

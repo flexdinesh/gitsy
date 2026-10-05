@@ -17,8 +17,8 @@ type navigationState struct {
 }
 
 type worktreeRemovedMsg struct {
-	path   string
-	result git.Result
+	repo   discover.Repo
+	result git.WorktreeRemovalResult
 }
 
 func (model Model) includes(result ui.RepoResult) bool {
@@ -65,23 +65,26 @@ func (model *Model) worktreeKey(key tea.KeyMsg) (bool, tea.Cmd) {
 		switch key.String() {
 		case "esc", "n", "N":
 			model.confirm = nil
+			model.force = false
 			model.refresh()
-		case "enter":
+		case "y", "Y":
 			if !model.canConfirm() {
 				return true, nil
 			}
 			repo := *model.confirm
+			force := model.force
+			model.force = false
 			model.confirm = nil
 			model.deleting = repo.Path
 			model.refresh()
 			return true, func() tea.Msg {
-				return worktreeRemovedMsg{path: repo.Path, result: model.remove(model.ctx, repo.Worktree.MainPath, repo.Path)}
+				return worktreeRemovedMsg{repo: repo, result: model.remove(model.ctx, repo.Worktree.MainPath, repo.Path, force)}
 			}
 		}
 		return true, nil
 	}
 	switch key.String() {
-	case "left", "right":
+	case "tab", "shift+tab", "left", "right":
 		model.switchTab()
 		return true, nil
 	case "esc":
@@ -100,6 +103,7 @@ func (model *Model) worktreeKey(key tea.KeyMsg) (bool, tea.Cmd) {
 			repo := result.Repo
 			model.notice = ""
 			model.confirm = &repo
+			model.force = false
 		}
 		model.refresh()
 		return true, nil
@@ -126,7 +130,7 @@ func (model Model) renderTabs(width int) string {
 	if model.worktrees {
 		firstStyle, secondStyle = secondStyle, firstStyle
 	}
-	return firstStyle.Render(first) + "  " + secondStyle.Render(second) + headerMetaStyle().Render(truncateCell("  ←/→", max(0, width-len(first)-len(second)-2)))
+	return firstStyle.Render(first) + "  " + secondStyle.Render(second) + headerMetaStyle().Render(truncateCell("  tab", max(0, width-len(first)-len(second)-2)))
 }
 
 func (model Model) emptyMessage() string {
@@ -144,7 +148,7 @@ func (model Model) actionLines() []string {
 	content := max(1, width-spaceSM*2)
 	if model.confirm != nil {
 		path := displayGroupPath(model.confirm.Path, model.home)
-		lines := append([]string{"Delete worktree? Branch kept."}, wrapPlain(path, content)...)
+		lines := model.confirmationLines(content)
 		if !model.canConfirm() {
 			return []string{"Enlarge terminal to review path.", runewidth.TruncateLeft(path, max(0, runewidth.StringWidth(path)-content), "…")}
 		}
@@ -160,6 +164,14 @@ func (model Model) actionLines() []string {
 	return nil
 }
 
+func (model Model) confirmationLines(content int) []string {
+	prompt := "Delete worktree? Branch kept."
+	if model.force {
+		prompt = "Force delete worktree? Discards changed, untracked, and ignored files. Branch kept."
+	}
+	return append(wrapPlain(prompt, content), wrapPlain(displayGroupPath(model.confirm.Path, model.home), content)...)
+}
+
 func (model Model) canConfirm() bool {
 	width, height := model.width, model.height
 	if width == 0 {
@@ -171,8 +183,8 @@ func (model Model) canConfirm() bool {
 	if model.confirm == nil {
 		return false
 	}
-	lines := wrapPlain(displayGroupPath(model.confirm.Path, model.home), max(1, width-spaceSM*2))
-	return width >= 20 && height >= 4 && len(lines)+2 <= height
+	lines := model.confirmationLines(max(1, width-spaceSM*2))
+	return width >= 20 && height >= 4 && len(lines)+1 <= height
 }
 
 func (model Model) actionHeight() int { return len(model.actionLines()) }
@@ -183,8 +195,12 @@ func (model Model) viewportHeight(height int) int {
 
 func (model Model) renderAction(width int) string {
 	lines := model.actionLines()
+	tone := "yellow"
+	if model.force {
+		tone = "red"
+	}
 	for index := range lines {
-		lines[index] = toneStyle("yellow", index == 0, false).Render(truncateCell(lines[index], max(1, width-spaceSM*2)))
+		lines[index] = toneStyle(tone, index == 0, false).Render(truncateCell(lines[index], max(1, width-spaceSM*2)))
 	}
 	if len(lines) == 0 {
 		return ""
