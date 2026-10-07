@@ -9,6 +9,8 @@ related_targets: ["internal/tui/theme.go", "internal/tui/worktrees.go"]
 
 Mode: Operate. Priorities: identify changed/behind/failed repositories quickly and fit many repositories. User delegated aesthetics; support light and dark terminals. Preserve Git behavior, ordering, keyboard and mouse navigation. Use terminal-native code; no raster assets.
 
+PROGRESS: Header right shows active-tab unique completed/total inspections with operation mode and in-progress/done text. Failed inspections are completed; deleted worktrees are excluded. Directory right shows completed/total repos or worktrees, shared across overlapping groups and retained in sticky/compact context. Empty directories show 0/0. Narrow layouts preserve the ratio before labels; palette and density unchanged.
+
 ## Direction contract
 
 THESIS: A dispatch board grouped by scan directory, with dense repository strips and optional file detail.

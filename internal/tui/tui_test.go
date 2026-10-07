@@ -302,7 +302,7 @@ func TestHeaderSplitsTitleAndMeta(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	header := updated.(Model).renderHeader(80)
 
-	if !strings.Contains(header, "gitsy") || !strings.Contains(header, "pending") {
+	if !strings.Contains(header, "gitsy") || !strings.Contains(header, "0/1 in progress") {
 		t.Fatalf("expected title left and mode right in header, got %q", header)
 	}
 	if strings.Contains(header, "• fetch") && strings.Index(header, "repos") > strings.Index(header, "• fetch") {
