@@ -36,6 +36,7 @@ type rowEntry struct {
 	repoIndex  int // appearance index; -1 for group headers, dividers and empty states
 	group      string
 	groupSize  int
+	groupDone  int
 	groupLabel string
 }
 
@@ -279,7 +280,9 @@ func tableViewportHeight(height int) int {
 }
 
 func (model Model) compactView(width, height int) string {
-	lines := []string{model.title()}
+	done, total := model.progress()
+	count := fmt.Sprintf("%d/%d", done, total)
+	lines := []string{padCell(truncateCell(model.title(), max(0, width-len(count)-spaceSM)), max(0, width-len(count))) + count}
 	if len(model.displayResults()) == 0 || model.browseEmpty {
 		message := model.emptyMessage()
 		if model.browseEmpty && len(model.visibleRows()) > 0 {
@@ -292,7 +295,7 @@ func (model Model) compactView(width, height int) string {
 					}
 				}
 			}
-			lines = append(lines, group.group)
+			lines = append(lines, renderGroup(group, width, false))
 			if group.groupSize > 0 {
 				message = fmt.Sprintf("%d repos", group.groupSize)
 				if model.worktrees {
@@ -300,13 +303,18 @@ func (model Model) compactView(width, height int) string {
 				}
 			}
 		} else if groups := model.displayGroups(); len(groups) > 0 {
-			lines = append(lines, displayGroupPath(groups[0].Path, model.home))
+			lines = append(lines, renderGroup(model.groupEntry(groups[0]), width, false))
 		}
 		lines = append(lines, message)
 	} else {
 		result := model.selectedResult()
-		if group := model.selectedGroup(); group != "" {
-			lines = append(lines, displayGroupPath(group, model.home))
+		if path := model.selectedGroup(); path != "" {
+			for _, group := range model.displayGroups() {
+				if group.Path == path {
+					lines = append(lines, renderGroup(model.groupEntry(group), width, false))
+					break
+				}
+			}
 		}
 		name := result.Repo.DisplayName
 		if model.worktrees {
@@ -363,6 +371,31 @@ func (model Model) pending() int {
 		}
 	}
 	return pending
+}
+
+func (model Model) progress() (done, total int) {
+	for _, result := range model.results {
+		if model.includes(result) {
+			total++
+			if !result.Loading {
+				done++
+			}
+		}
+	}
+	return done, total
+}
+
+func (model Model) groupEntry(group discover.Group) rowEntry {
+	entry := rowEntry{group: displayGroupPath(group.Path, model.home), groupSize: len(group.RepoIndexes), repoIndex: -1}
+	if model.worktrees {
+		entry.groupLabel = "worktrees"
+	}
+	for _, index := range group.RepoIndexes {
+		if !model.results[index].Loading {
+			entry.groupDone++
+		}
+	}
+	return entry
 }
 
 func (model Model) inFlight() int {
@@ -593,11 +626,7 @@ func (model Model) tableRows() []rowEntry {
 	grouped := []rowEntry{}
 	position := 0
 	for _, group := range groups {
-		label := ""
-		if model.worktrees {
-			label = "worktrees"
-		}
-		grouped = append(grouped, rowEntry{group: displayGroupPath(group.Path, model.home), groupSize: len(group.RepoIndexes), groupLabel: label, repoIndex: -1})
+		grouped = append(grouped, model.groupEntry(group))
 		if len(group.RepoIndexes) == 0 {
 			grouped = append(grouped, rowEntry{status: model.emptyMessage(), repoIndex: -1})
 		}
@@ -726,7 +755,7 @@ func padCell(value string, width int) string {
 	return value
 }
 
-// renderHeader splits the bar: repo summary left, mode/pending right.
+// renderHeader splits the bar: repo summary left, mode/progress right.
 // Plain text is measured first, styled last, so ANSI never affects layout.
 func (model Model) renderHeader(width int) string {
 	content := max(1, width-spaceSM*2)
@@ -741,6 +770,10 @@ func (model Model) renderHeader(width int) string {
 		if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
 			left = fmt.Sprintf("gitsy · %d dirs", len(model.groups))
 		}
+	}
+	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
+		done, total := model.progress()
+		right = fmt.Sprintf("%s · %d/%d", model.mode(), done, total)
 	}
 	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
 		if runewidth.StringWidth(right)+1 <= content {
@@ -808,7 +841,15 @@ func (model Model) title() string {
 // headerRight is the header meta without the leading separator: the gap
 // between title and meta already separates them.
 func (model Model) headerRight() string {
-	pending := model.pending()
+	done, total := model.progress()
+	state := "in progress"
+	if done == total {
+		state = "done"
+	}
+	return fmt.Sprintf("%s · %d/%d %s", model.mode(), done, total, state)
+}
+
+func (model Model) mode() string {
 	mode := "fetch"
 	if model.noFetch {
 		mode = "local"
@@ -816,7 +857,7 @@ func (model Model) headerRight() string {
 	if model.sync {
 		mode = "sync"
 	}
-	return strings.TrimPrefix(fmtStatus(mode, pending), " • ")
+	return mode
 }
 
 // The context rail shares the ledger's height.
@@ -971,24 +1012,7 @@ func (model Model) visibleRows() []rowEntry {
 // Keep the selection marker visible even without terminal color support.
 func renderRow(entry rowEntry, cols [3]int, selected int) string {
 	if entry.group != "" {
-		width := lineWidthFor(cols)
-		count := fmt.Sprintf("%d repos", entry.groupSize)
-		if entry.groupSize == 1 {
-			count = "1 repo"
-		}
-		if entry.groupLabel != "" {
-			count = fmt.Sprintf("%d %s", entry.groupSize, entry.groupLabel)
-		}
-		if width < runewidth.StringWidth(count)+4 {
-			return infoSectionStyle().Render(padCell(truncateCell(entry.group, width), width))
-		}
-		pathWidth := width - runewidth.StringWidth(count) - columnGap
-		path := entry.group
-		if fullWidth := runewidth.StringWidth(path); fullWidth > pathWidth {
-			path = runewidth.TruncateLeft(path, fullWidth-pathWidth+1, "…")
-		}
-		return infoSectionStyle().Render(padCell(path, pathWidth)) +
-			strings.Repeat(" ", columnGap) + headerMetaStyle().Render(count)
+		return renderGroup(entry, lineWidthFor(cols), true)
 	}
 	if entry.divider {
 		return strings.Repeat(" ", max(1, lineWidthFor(cols)))
@@ -1021,6 +1045,33 @@ func renderRow(entry rowEntry, cols [3]int, selected int) string {
 	return headerMetaStyle().Render(number) + gap + lipgloss.NewStyle().Foreground(textHi).Render(repo) + gap + toneStyle(entry.tone, false, entry.dim).Render(status)
 }
 
+func renderGroup(entry rowEntry, width int, styled bool) string {
+	label := "repos"
+	if entry.groupSize == 1 {
+		label = "repo"
+	}
+	if entry.groupLabel != "" {
+		label = entry.groupLabel
+	}
+	count := fmt.Sprintf("%d/%d", entry.groupDone, entry.groupSize)
+	if len(count)+1+len(label)+columnGap+1 <= width {
+		count += " " + label
+	}
+	pathWidth := width - len(count) - columnGap
+	if pathWidth < 1 {
+		return truncateCell(count, width)
+	}
+	path := entry.group
+	if fullWidth := runewidth.StringWidth(path); fullWidth > pathWidth {
+		path = runewidth.TruncateLeft(path, fullWidth-pathWidth+1, "…")
+	}
+	path = padCell(path, pathWidth) + strings.Repeat(" ", columnGap)
+	if styled {
+		return infoSectionStyle().Render(path) + headerMetaStyle().Render(count)
+	}
+	return path + count
+}
+
 func (model Model) renderTable() string {
 	return tableStyle(model.tableOuter).Render(renderTableBody(model.rows, model.colWidths, model.offset, model.capacity, model.selected))
 }
@@ -1043,13 +1094,6 @@ func columnWidths(width int, results []ui.RepoResult) (int, int, int) {
 	repoWidth := clamp(longestRepoName, minRepoWidth, maxRepoWidth)
 	statusWidth := max(8, contentWidth-repoWidth)
 	return numberWidth, repoWidth, statusWidth
-}
-
-func fmtStatus(mode string, pending int) string {
-	if pending <= 0 {
-		return " • " + mode + " · done"
-	}
-	return " • " + mode + " • " + strconv.Itoa(pending) + " pending"
 }
 
 // renderFooter is always shown: position left, key hints right.
