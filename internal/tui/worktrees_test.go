@@ -274,7 +274,7 @@ func TestWorktreeContextMatchesSelectedIdentity(t *testing.T) {
 	model.results[1].Repo.Path = "/workspace/feature-auth"
 	model, _ = keyModel(model, "tab")
 	info := strings.Join(model.infoLines(30), "\n")
-	if !strings.Contains(info, "feature-auth") || strings.Contains(info, "origin-name") {
+	if !strings.Contains(info, "feature-auth") || !strings.Contains(info, "origin-name") {
 		t.Fatal("worktree context must match row identity")
 	}
 }
@@ -316,7 +316,7 @@ func TestWorktreeConfirmationRequiresVisiblePath(t *testing.T) {
 }
 
 func TestWorktreeViewsFitTerminals(t *testing.T) {
-	for _, size := range [][2]int{{1, 1}, {20, 6}, {31, 10}, {32, 7}, {40, 10}, {80, 24}, {120, 24}} {
+	for _, size := range [][2]int{{1, 1}, {20, 6}, {31, 10}, {32, 7}, {32, 9}, {40, 10}, {80, 24}, {104, 24}, {120, 24}} {
 		for _, state := range []string{"ready", "loading", "dirty", "failed", "stale", "sync", "locked", "empty", "confirm", "force", "deleting", "error"} {
 			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], state), func(t *testing.T) {
 				model := worktreeTestModel()
@@ -432,5 +432,86 @@ func TestRenderWorktreePreviews(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(directory, "worktrees-renders.json"), data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorktreeRowsDistinguishRepositories(t *testing.T) {
+	for _, expanded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("expanded=%t", expanded), func(t *testing.T) {
+			model := worktreeTestModel()
+			model.groups = nil
+			model.expanded = expanded
+			for index := range model.results {
+				model.results[index].Repo.DisplayName = fmt.Sprintf("repo-%d", index)
+				model.results[index].Repo.Path = fmt.Sprintf("/workspace/repo-%d/feature", index)
+				model.results[index].Repo.Worktree = &git.Worktree{MainPath: fmt.Sprintf("/workspace/repo-%d/main", index)}
+				model.results[index].Status = status.Parse("## topic\n M tracked.go\n")
+			}
+			model, _ = keyModel(model, "tab")
+			for _, row := range model.tableRows() {
+				if row.repoIndex < 0 {
+					continue
+				}
+				if row.number == "" {
+					if row.repo != "" || row.worktree != "" {
+						t.Fatal("file detail must leave both identity columns empty")
+					}
+					continue
+				}
+				want := fmt.Sprintf("repo-%d", row.repoIndex)
+				if row.repo != want || row.worktree != "feature" || !strings.Contains(row.status, "topic") {
+					t.Fatalf("must distinguish repositories sharing a worktree basename: %+v", row)
+				}
+				rendered := model.renderRow(row)
+				if !strings.Contains(rendered, want) || !strings.Contains(rendered, "feature") {
+					t.Fatalf("both identities must render: %s", rendered)
+				}
+			}
+			model, _ = keyModel(model, "tab")
+			if strings.Contains(model.View(), "Worktree  ") || model.colWidths.worktree != 0 {
+				t.Fatal("repository tab must retain its original columns")
+			}
+		})
+	}
+}
+
+func TestWorktreeCompactIdentity(t *testing.T) {
+	for _, name := range []string{"gitsy", "日本語の長いリポジトリ名"} {
+		model := worktreeTestModel()
+		model.width, model.height = 31, 8
+		model.results[1].Repo.DisplayName = name
+		model.results[1].Repo.Path = "/workspace/auth"
+		model, _ = keyModel(model, "tab")
+		view := model.View()
+		if !strings.Contains(view, " / auth") || !strings.Contains(view, string([]rune(name)[:2])) {
+			t.Fatalf("compact selection must show repository and worktree: %s", view)
+		}
+	}
+}
+
+func TestWorktreeColumnsFitLongUnicodeIdentities(t *testing.T) {
+	for _, width := range []int{32, 40, 80, 104, 120, 240} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			model := worktreeTestModel()
+			model.width = width
+			model.results[1].Repo.DisplayName = strings.Repeat("日本語", 12)
+			model.results[1].Repo.Path = "/workspace/" + strings.Repeat("機能", 20) + "\tfix"
+			model, _ = keyModel(model, "tab")
+			cols := model.colWidths
+			if cols.status < 8 || cols.repo > maxRepoWidthCap || cols.worktree > maxRepoWidthCap {
+				t.Fatalf("must cap identities and reserve status: %+v", cols)
+			}
+			for _, row := range model.tableRows() {
+				if got := lipgloss.Width(model.renderRow(row)); got != model.lineWidth() {
+					t.Fatalf("misaligned row: got %d, want %d", got, model.lineWidth())
+				}
+				if strings.Contains(row.worktree, "\t") {
+					t.Fatal("worktree control characters must be escaped")
+				}
+			}
+			if lipgloss.Width(model.View()) > width {
+				t.Fatal("view must fit terminal")
+			}
+		})
 	}
 }

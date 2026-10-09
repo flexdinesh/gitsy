@@ -27,6 +27,7 @@ type rowEntry struct {
 	number     string // right-aligned digits only; marker is separate
 	marker     bool   // selected repo's first row shows ›
 	repo       string
+	worktree   string
 	status     string
 	compact    string
 	divider    bool
@@ -38,6 +39,10 @@ type rowEntry struct {
 	groupSize  int
 	groupDone  int
 	groupLabel string
+}
+
+type tableColumns struct {
+	number, repo, worktree, status int
 }
 
 // Model holds unique results and a viewport over repo appearances: selected
@@ -77,7 +82,7 @@ type Model struct {
 	tableOuter int
 	infoOuter  int
 	infoShown  bool
-	colWidths  [3]int
+	colWidths  tableColumns
 }
 
 type repoDoneMsg struct {
@@ -247,17 +252,12 @@ func (model Model) View() string {
 
 	tableOuter, infoOuter, infoShown := layoutWidths(width)
 	tableWidth := max(1, tableOuter-2-padX*2)
-	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.displayResults())
-	cols := [3]int{numberWidth, repoWidth, statusWidth}
+	cols := model.columns(tableWidth)
 	entries := model.tableRows()
 	capacity := model.viewportHeight(height)
 	offset := clamp(model.offset, 0, maxViewportOffset(entries, capacity))
 
-	label := "Repository"
-	if model.worktrees {
-		label = "Worktree"
-	}
-	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected, label))
+	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected))
 	middle := tableBox
 	if infoShown {
 		infoBox := model.renderInfo(infoOuter, lipgloss.Height(tableBox))
@@ -318,7 +318,7 @@ func (model Model) compactView(width, height int) string {
 		}
 		name := result.Repo.DisplayName
 		if model.worktrees {
-			name = displayGroupPath(filepath.Base(result.Repo.Path), "")
+			name = worktreeIdentity(result.Repo, max(1, width-2))
 		}
 		lines = append(lines, iconSelected+" "+name)
 		for _, row := range ui.RowsForRepo(result) {
@@ -507,8 +507,7 @@ func (model *Model) updateTableWithSize(width int, height int) {
 	model.tableOuter, model.infoOuter, model.infoShown = layoutWidths(width)
 	tableWidth := max(1, model.tableOuter-2-padX*2)
 	model.tableWidth = tableWidth
-	numberWidth, repoWidth, statusWidth := columnWidths(tableWidth, model.displayResults())
-	model.colWidths = [3]int{numberWidth, repoWidth, statusWidth}
+	model.colWidths = model.columns(tableWidth)
 	model.rows = model.tableRows()
 	model.capacity = max(1, height)
 	if len(model.displayResults()) > 0 {
@@ -589,9 +588,6 @@ func firstRepoAt(rows []rowEntry, offset int, fallback int) int {
 func (model Model) tableRows() []rowEntry {
 	results := append([]ui.RepoResult(nil), model.displayResults()...)
 	for index := range results {
-		if model.worktrees {
-			results[index].Repo.DisplayName = displayGroupPath(filepath.Base(results[index].Repo.Path), "")
-		}
 		if results[index].Loading {
 			results[index].LoadingText = model.spin.View()
 		}
@@ -600,7 +596,11 @@ func (model Model) tableRows() []rowEntry {
 	if model.worktrees {
 		for index := range entries {
 			entry := &entries[index]
-			if entry.number != "" && results[entry.repoIndex].Repo.Worktree.Locked {
+			if entry.number == "" {
+				continue
+			}
+			entry.worktree = displayGroupPath(filepath.Base(results[entry.repoIndex].Repo.Path), "")
+			if results[entry.repoIndex].Repo.Worktree.Locked {
 				entry.status = "locked · " + entry.status
 				entry.compact = "locked · " + entry.compact
 				entry.tone = "yellow"
@@ -740,8 +740,12 @@ func (model Model) lineWidth() int {
 	return lineWidthFor(model.colWidths)
 }
 
-func lineWidthFor(cols [3]int) int {
-	return cols[0] + cols[1] + cols[2] + columnGap*2
+func lineWidthFor(cols tableColumns) int {
+	width := cols.number + cols.repo + cols.status + columnGap*2
+	if cols.worktree > 0 {
+		width += cols.worktree + columnGap
+	}
+	return width
 }
 
 func truncateCell(value string, width int) string {
@@ -897,6 +901,7 @@ func (model Model) infoLines(width int) []string {
 	lines = append(lines, wrapInfo(result.Repo.Path, width, textLo)...)
 	if worktree := result.Repo.Worktree; model.worktrees && worktree != nil {
 		lines = append(lines, "", infoSectionStyle().Render("Repository"))
+		lines = append(lines, wrapInfo(result.Repo.DisplayName, width, textHi)...)
 		lines = append(lines, wrapInfo(displayGroupPath(worktree.MainPath, model.home), width, textLo)...)
 		if worktree.Locked {
 			lines = append(lines, wrapInfo("Locked: "+worktree.LockReason, width, warning)...)
@@ -938,16 +943,15 @@ func layoutWidths(termWidth int) (tableOuter int, infoOuter int, infoShown bool)
 // renderTableBody draws a real table: column header, full-width rule,
 // then the visible window of rows. Plain text is measured first, styles
 // applied last, so ANSI never affects layout.
-func renderTableBody(entries []rowEntry, cols [3]int, offset int, capacity int, selected int, labels ...string) string {
-	numberWidth, repoWidth, statusWidth := cols[0], cols[1], cols[2]
-	label := "Repository"
-	if len(labels) > 0 {
-		label = labels[0]
-	}
+func renderTableBody(entries []rowEntry, cols tableColumns, offset int, capacity int, selected int) string {
+	numberWidth, repoWidth, statusWidth := cols.number, cols.repo, cols.status
 	gap := strings.Repeat(" ", columnGap)
 	header := padCell(truncateCell("#", numberWidth), numberWidth) + gap +
-		padCell(truncateCell(label, repoWidth), repoWidth) + gap +
-		padCell(truncateCell("Branch / status", statusWidth), statusWidth)
+		padCell(truncateCell("Repository", repoWidth), repoWidth) + gap
+	if cols.worktree > 0 {
+		header += padCell(truncateCell("Worktree", cols.worktree), cols.worktree) + gap
+	}
+	header += padCell(truncateCell("Branch / status", statusWidth), statusWidth)
 	lines := []string{
 		columnHeaderStyle().Render(header),
 		dividerStyle().Render(strings.Repeat("─", max(1, lineWidthFor(cols)))),
@@ -1010,7 +1014,7 @@ func (model Model) visibleRows() []rowEntry {
 }
 
 // Keep the selection marker visible even without terminal color support.
-func renderRow(entry rowEntry, cols [3]int, selected int) string {
+func renderRow(entry rowEntry, cols tableColumns, selected int) string {
 	if entry.group != "" {
 		return renderGroup(entry, lineWidthFor(cols), true)
 	}
@@ -1020,7 +1024,7 @@ func renderRow(entry rowEntry, cols [3]int, selected int) string {
 	if entry.repoIndex < 0 {
 		return headerMetaStyle().Render(padCell(truncateCell(entry.status, lineWidthFor(cols)), lineWidthFor(cols)))
 	}
-	numberWidth, repoWidth, statusWidth := cols[0], cols[1], cols[2]
+	numberWidth, repoWidth, statusWidth := cols.number, cols.repo, cols.status
 	gap := strings.Repeat(" ", columnGap)
 	marker := " "
 	if entry.marker {
@@ -1028,6 +1032,9 @@ func renderRow(entry rowEntry, cols [3]int, selected int) string {
 	}
 	number := padCell(truncateCell(marker+" "+entry.number, numberWidth), numberWidth)
 	repo := padCell(truncateCell(entry.repo, repoWidth), repoWidth)
+	if cols.worktree > 0 {
+		repo += gap + padCell(truncateCell(entry.worktree, cols.worktree), cols.worktree)
+	}
 	statusText := entry.status
 	if entry.number != "" && entry.compact != "" && runewidth.StringWidth(statusText) > statusWidth {
 		statusText = entry.compact
