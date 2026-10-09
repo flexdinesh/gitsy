@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -206,4 +207,27 @@ func (model Model) renderAction(width int) string {
 		return ""
 	}
 	return headerBarStyle(width).Render(strings.Join(lines, "\n"))
+}
+
+func (model Model) columns(width int) tableColumns {
+	results := model.displayResults()
+	number, repo, status := columnWidths(width, results)
+	if !model.worktrees {
+		return tableColumns{number: number, repo: repo, status: status}
+	}
+	content := width - number - columnGap*3
+	repo, worktree := runewidth.StringWidth("Repository"), runewidth.StringWidth("Worktree")
+	for _, result := range results {
+		repo = max(repo, runewidth.StringWidth(result.Repo.DisplayName))
+		worktree = max(worktree, runewidth.StringWidth(displayGroupPath(filepath.Base(result.Repo.Path), "")))
+	}
+	repo = min(repo, maxRepoWidthCap, max(4, content/4))
+	worktree = min(worktree, maxRepoWidthCap, max(4, content/3))
+	return tableColumns{number: number, repo: repo, worktree: worktree, status: max(1, content-repo-worktree)}
+}
+
+func worktreeIdentity(repo discover.Repo, width int) string {
+	name := displayGroupPath(filepath.Base(repo.Path), "")
+	repoWidth := min(runewidth.StringWidth(repo.DisplayName), max(1, (width-3)/2))
+	return truncateCell(repo.DisplayName, repoWidth) + " / " + truncateCell(name, max(1, width-repoWidth-3))
 }

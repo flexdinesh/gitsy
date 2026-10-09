@@ -612,7 +612,7 @@ func TestTableColumnsHaveSpacingAndFitWidth(t *testing.T) {
 	model.updateTableWithSize(40, 10)
 
 	widths := model.colWidths
-	if widths[0]+widths[1]+widths[2]+columnGap*2 > model.tableWidth {
+	if lineWidthFor(widths) > model.tableWidth {
 		t.Fatalf("expected columns plus spacing to fit table width, got %#v and width %d", widths, model.tableWidth)
 	}
 	if model.lineWidth() > model.tableWidth {
