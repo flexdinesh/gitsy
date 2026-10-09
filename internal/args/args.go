@@ -18,6 +18,7 @@ Options:
   --verbose          Print warnings for skipped repos and failed git commands
   --no-fetch         Skip fetching upstream changes (use local status only)
   --sync             Fast-forward repos that can safely update without conflicts (always fetches)
+  --plain            Print a status report and exit (no TUI)
   --help             Show this help message
   --version          Show package version
 `
@@ -27,6 +28,7 @@ type Options struct {
 	Verbose  bool
 	NoFetch  bool
 	Sync     bool
+	Plain    bool
 	Dirs     []string
 	Help     bool
 	Version  bool
@@ -55,6 +57,8 @@ func Parse(argv []string, cwd string) ParseResult {
 			options.NoFetch = true
 		case arg == "--sync":
 			options.Sync = true
+		case arg == "--plain":
+			options.Plain = true
 		case arg == "--help":
 			options.Help = true
 		case arg == "--version":

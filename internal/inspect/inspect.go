@@ -38,17 +38,47 @@ func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(messag
 }
 
 func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
+	return reposContext(ctx, repos, func(ctx context.Context, repo discover.Repo) Result {
+		return RepoContext(ctx, repo, noFetch, syncRepos, warn)
+	})
+}
+
+func reposContext(ctx context.Context, repos []discover.Repo, inspect func(context.Context, discover.Repo) Result) []Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	results := make([]Result, len(repos))
+	for index, repo := range repos {
+		results[index] = Result{Repo: repo, Failed: true}
+	}
+	jobs := make(chan int)
 	var waitGroup sync.WaitGroup
 
-	for index, repo := range repos {
+	for range min(8, len(repos)) {
 		waitGroup.Add(1)
-		go func(index int, repo discover.Repo) {
+		go func() {
 			defer waitGroup.Done()
-			results[index] = RepoContext(ctx, repo, noFetch, syncRepos, warn)
-		}(index, repo)
+			for index := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				results[index] = inspect(ctx, repos[index])
+			}
+		}()
 	}
 
+schedule:
+	for index := range repos {
+		if ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break schedule
+		case jobs <- index:
+		}
+	}
+	close(jobs)
 	waitGroup.Wait()
 	return results
 }

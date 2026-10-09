@@ -2,13 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	"github.com/flexdinesh/gitsy/internal/args"
 	"github.com/flexdinesh/gitsy/internal/discover"
+	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/tui"
+	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/flexdinesh/gitsy/internal/version"
 )
 
@@ -70,6 +76,14 @@ func run(argv []string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if options.Plain {
+		signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		ctx = signalCtx
+		if _, err := fmt.Fprintln(os.Stdout, "Checking repositories…"); err != nil {
+			return err
+		}
+	}
 
 	warnings := &warningCollector{}
 
@@ -94,9 +108,33 @@ func run(argv []string) error {
 		processWarn = warnings.Add
 	}
 
-	err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, processWarn)
+	if options.Plain {
+		err = runPlain(ctx, os.Stdout, workspace, noFetch, options.Sync, processWarn)
+	} else {
+		err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, processWarn)
+	}
 	if options.Verbose {
 		warnings.Print(os.Stderr)
 	}
 	return err
+}
+
+func runPlain(ctx context.Context, output io.Writer, workspace discover.Workspace, noFetch, syncRepos bool, warn func(string)) error {
+	results := inspect.ReposContext(ctx, workspace.Repos, noFetch, syncRepos, warn)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return printPlainResults(output, workspace, results)
+}
+
+func printPlainResults(output io.Writer, workspace discover.Workspace, results []inspect.Result) error {
+	if _, err := io.WriteString(output, ui.PlainReport(workspace, results)); err != nil {
+		return err
+	}
+	for _, result := range results {
+		if result.Failed || result.Stale || result.Sync != nil && result.Sync.Kind == "failed" {
+			return errors.New("git operations failed (use --verbose for details)")
+		}
+	}
+	return nil
 }
