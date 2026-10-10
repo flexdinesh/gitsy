@@ -24,10 +24,10 @@ gitsy
 gitsy --sync
 
 # Print a status report and exit, leaving it in terminal scrollback.
-gitsy --plain
+gitsy --non-interactive
 
 # Fast-forward safely, print the results, and exit.
-gitsy --plain --sync
+gitsy --non-interactive --sync
 
 # Scan repository directories up to a specific nested depth.
 gitsy --max-depth 5
@@ -56,7 +56,7 @@ select rows, `f` to toggle file details,
 `PgUp/PgDn` or the mouse wheel to scroll, and `q` to quit. Wide terminals
 show context for the selected repository. Colors adapt to light and dark themes.
 
-Use `--plain` for a non-interactive report: a brief progress line followed by
+Use `--non-interactive` for a status report: a brief progress line followed by
 grouped checkout paths, branch status, change counts, and sync outcomes. It
 includes clean repositories and linked worktrees, prints no filenames or terminal
 control sequences, and exits automatically. Existing flags still apply, including

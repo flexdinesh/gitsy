@@ -73,7 +73,7 @@ func TestPlainCommandReportsAndExitsWithoutTerminal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(linked, "hidden-filename.txt"), []byte("change"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, code := plainCommand(t, "--plain", "--no-fetch", "--dir", root, "--dir", root)
+	stdout, stderr, code := plainCommand(t, "--non-interactive", "--no-fetch", "--dir", root, "--dir", root)
 	if code != 0 || stderr != "" {
 		t.Fatalf("successful report: exit=%d stderr=%q", code, stderr)
 	}
@@ -95,7 +95,7 @@ func TestPlainCommandFetchFailureStillReportsOtherRepos(t *testing.T) {
 	}
 	plainGit(t, bad, "remote", "add", "origin", filepath.Join(root, "missing-remote"))
 	for _, verbose := range []bool{false, true} {
-		argv := []string{"--plain", "--dir", root}
+		argv := []string{"--non-interactive", "--dir", root}
 		if verbose {
 			argv = append(argv, "--verbose")
 		}
@@ -107,7 +107,7 @@ func TestPlainCommandFetchFailureStillReportsOtherRepos(t *testing.T) {
 			t.Fatalf("detailed warnings require --verbose: %q", stderr)
 		}
 	}
-	_, stderr, code := plainCommand(t, "--plain", "--no-fetch", "--dir", root)
+	_, stderr, code := plainCommand(t, "--non-interactive", "--no-fetch", "--dir", root)
 	if code != 0 || stderr != "" {
 		t.Fatalf("--no-fetch must succeed with unavailable remote: exit=%d stderr=%q", code, stderr)
 	}
@@ -120,7 +120,7 @@ func TestPlainCommandSyncAlwaysFetchesAndReportsFinalStatus(t *testing.T) {
 	plainGit(t, origin, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "initial")
 	plainGit(t, root, "clone", "-q", origin, clone)
 	plainGit(t, origin, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "update")
-	stdout, stderr, code := plainCommand(t, "--plain", "--sync", "--no-fetch", "--dir", root)
+	stdout, stderr, code := plainCommand(t, "--non-interactive", "--sync", "--no-fetch", "--dir", root)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "synced ↓1") || strings.Contains(stdout, "1 behind") {
 		t.Fatalf("sync must fetch and show final state: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -132,7 +132,7 @@ func TestPlainCommandSyncAlwaysFetchesAndReportsFinalStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout
-	stdout, stderr, code = plainCommand(t, "--plain", "--sync", "--dir", root)
+	stdout, stderr, code = plainCommand(t, "--non-interactive", "--sync", "--dir", root)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "1 behind") || strings.Contains(stdout, "synced") {
 		t.Fatalf("unsafe sync skip is a normal result: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -143,11 +143,11 @@ func TestPlainCommandSyncAlwaysFetchesAndReportsFinalStatus(t *testing.T) {
 
 func TestPlainCommandEmptyAndInvalidRoots(t *testing.T) {
 	root := t.TempDir()
-	stdout, stderr, code := plainCommand(t, "--plain", "--dir", root)
+	stdout, stderr, code := plainCommand(t, "--non-interactive", "--dir", root)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "No child git repositories found.") {
 		t.Fatalf("empty scan must succeed: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	_, stderr, code = plainCommand(t, "--plain", "--dir", filepath.Join(root, "missing"))
+	_, stderr, code = plainCommand(t, "--non-interactive", "--dir", filepath.Join(root, "missing"))
 	if code != 1 || !strings.Contains(stderr, "read scan directory") {
 		t.Fatalf("invalid root must fail: exit=%d stderr=%q", code, stderr)
 	}

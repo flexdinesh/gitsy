@@ -18,20 +18,20 @@ Options:
   --verbose          Print warnings for skipped repos and failed git commands
   --no-fetch         Skip fetching upstream changes (use local status only)
   --sync             Fast-forward repos that can safely update without conflicts (always fetches)
-  --plain            Print a status report and exit (no TUI)
+  --non-interactive  Print a status report and exit without opening the TUI
   --help             Show this help message
   --version          Show package version
 `
 
 type Options struct {
-	MaxDepth int
-	Verbose  bool
-	NoFetch  bool
-	Sync     bool
-	Plain    bool
-	Dirs     []string
-	Help     bool
-	Version  bool
+	MaxDepth       int
+	Verbose        bool
+	NoFetch        bool
+	Sync           bool
+	NonInteractive bool
+	Dirs           []string
+	Help           bool
+	Version        bool
 }
 
 type ParseResult struct {
@@ -57,8 +57,8 @@ func Parse(argv []string, cwd string) ParseResult {
 			options.NoFetch = true
 		case arg == "--sync":
 			options.Sync = true
-		case arg == "--plain":
-			options.Plain = true
+		case arg == "--non-interactive":
+			options.NonInteractive = true
 		case arg == "--help":
 			options.Help = true
 		case arg == "--version":

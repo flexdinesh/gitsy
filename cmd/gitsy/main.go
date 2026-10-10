@@ -76,7 +76,7 @@ func run(argv []string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if options.Plain {
+	if options.NonInteractive {
 		signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		ctx = signalCtx
@@ -108,7 +108,7 @@ func run(argv []string) error {
 		processWarn = warnings.Add
 	}
 
-	if options.Plain {
+	if options.NonInteractive {
 		err = runPlain(ctx, os.Stdout, workspace, noFetch, options.Sync, processWarn)
 	} else {
 		err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, processWarn)

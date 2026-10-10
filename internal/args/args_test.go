@@ -16,17 +16,17 @@ func TestParseReturnsDefaults(t *testing.T) {
 	if !reflect.DeepEqual(result.Options.Dirs, []string{"/cwd"}) {
 		t.Fatalf("expected Dirs [/cwd], got %v", result.Options.Dirs)
 	}
-	if result.Options.Verbose || result.Options.NoFetch || result.Options.Sync || result.Options.Plain || result.Options.Help || result.Options.Version {
+	if result.Options.Verbose || result.Options.NoFetch || result.Options.Sync || result.Options.NonInteractive || result.Options.Help || result.Options.Version {
 		t.Fatalf("expected boolean flags to default false: %+v", result.Options)
 	}
 }
 
 func TestParseSupportsFlags(t *testing.T) {
-	result := Parse([]string{"--verbose", "--no-fetch", "--sync", "--plain", "--help", "--version"}, "/cwd")
+	result := Parse([]string{"--verbose", "--no-fetch", "--sync", "--non-interactive", "--help", "--version"}, "/cwd")
 	if !result.OK {
 		t.Fatalf("Parse returned error: %v", result.Err)
 	}
-	if !result.Options.Verbose || !result.Options.NoFetch || !result.Options.Sync || !result.Options.Plain || !result.Options.Help || !result.Options.Version {
+	if !result.Options.Verbose || !result.Options.NoFetch || !result.Options.Sync || !result.Options.NonInteractive || !result.Options.Help || !result.Options.Version {
 		t.Fatalf("expected all flags true: %+v", result.Options)
 	}
 }
