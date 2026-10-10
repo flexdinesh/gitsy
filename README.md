@@ -23,6 +23,12 @@ gitsy
 # Fast-forward repositories that can safely update without conflicts.
 gitsy --sync
 
+# Print a status report and exit, leaving it in terminal scrollback.
+gitsy --non-interactive
+
+# Fast-forward safely, print the results, and exit.
+gitsy --non-interactive --sync
+
 # Scan repository directories up to a specific nested depth.
 gitsy --max-depth 5
 
@@ -49,6 +55,15 @@ Use `Tab` to switch **Repositories** / **Worktrees**, `↑/↓` or `j/k` to
 select rows, `f` to toggle file details,
 `PgUp/PgDn` or the mouse wheel to scroll, and `q` to quit. Wide terminals
 show context for the selected repository. Colors adapt to light and dark themes.
+
+Use `--non-interactive` for a status report: a brief progress line followed by
+grouped checkout paths, branch status, change counts, and sync outcomes. It
+includes clean repositories and linked worktrees, prints no filenames or terminal
+control sequences, and exits automatically. Existing flags still apply, including
+`--no-fetch` and `--verbose`. Dirty, behind, or diverged repositories are normal
+results and exit successfully; failed fetch, status, or sync commands return exit
+code 1 after printing available results. Repositories skipped by the safe sync
+rules are normal results. An empty workspace exits successfully.
 
 With `--dir`, only the supplied directories are scanned. `--max-depth` applies
 to each directory; linked worktrees are included wherever they live. Relative
