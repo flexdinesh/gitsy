@@ -1,0 +1,69 @@
+package inspect
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/flexdinesh/gitsy/internal/discover"
+	"github.com/flexdinesh/gitsy/internal/git"
+)
+
+type fetchCall struct {
+	done   chan struct{}
+	result git.Result
+}
+
+// Session shares fetches only for one inspection run.
+type Session struct {
+	mutex    sync.Mutex
+	fetches  map[string]*fetchCall
+	commands gitCommands
+	fetchKey func(context.Context, string) string
+}
+
+func NewSession() *Session {
+	return &Session{
+		fetches: make(map[string]*fetchCall),
+		commands: gitCommands{
+			fetch:   git.FetchAllContext,
+			status:  git.ShortStatusContext,
+			merge:   git.FastForwardToContext,
+			resolve: git.ResolveCommitContext,
+		},
+		fetchKey: git.FetchKeyContext,
+	}
+}
+
+func (session *Session) RepoContext(ctx context.Context, repo discover.Repo, noFetch, syncRepo bool, warn func(string)) Result {
+	commands := session.commands
+	commands.fetch = session.fetch
+	return repoContext(ctx, repo, noFetch, syncRepo, warn, commands)
+}
+
+func (session *Session) fetch(ctx context.Context, repoPath string, timeout time.Duration) git.Result {
+	if ctx.Err() != nil {
+		return git.Result{Stderr: ctx.Err().Error(), Status: -1}
+	}
+	key := session.fetchKey(ctx, repoPath)
+	if key == "" {
+		return session.commands.fetch(ctx, repoPath, timeout)
+	}
+	session.mutex.Lock()
+	if call, exists := session.fetches[key]; exists {
+		session.mutex.Unlock()
+		select {
+		case <-ctx.Done():
+			return git.Result{Stderr: ctx.Err().Error(), Status: -1}
+		case <-call.done:
+			return call.result
+		}
+	}
+	call := &fetchCall{done: make(chan struct{})}
+	session.fetches[key] = call
+	session.mutex.Unlock()
+
+	call.result = session.commands.fetch(ctx, repoPath, timeout)
+	close(call.done)
+	return call.result
+}

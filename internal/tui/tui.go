@@ -91,7 +91,7 @@ type repoDoneMsg struct {
 }
 
 func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, workspace discover.Workspace, noFetch bool, syncRepos bool, warn func(string)) error {
-	model := newModel(ctx, cancel, workspace.Repos, noFetch, syncRepos, warn, inspect.RepoContext)
+	model := newModel(ctx, cancel, workspace.Repos, noFetch, syncRepos, warn, inspect.NewSession().RepoContext)
 	model.groups = workspace.Groups
 	program := tea.NewProgram(
 		model,
@@ -104,7 +104,7 @@ func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, worksp
 }
 
 func NewModel(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string)) Model {
-	return newModel(context.Background(), nil, repos, noFetch, syncRepos, warn, inspect.RepoContext)
+	return newModel(context.Background(), nil, repos, noFetch, syncRepos, warn, inspect.NewSession().RepoContext)
 }
 
 func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string), inspect inspector) Model {

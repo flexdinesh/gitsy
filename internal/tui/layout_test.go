@@ -90,7 +90,7 @@ func TestNarrowHeaderKeepsExceptionCounts(t *testing.T) {
 
 func TestViewsFitTerminal(t *testing.T) {
 	for _, size := range [][2]int{{1, 1}, {20, 6}, {31, 10}, {32, 7}, {40, 10}, {60, 16}, {80, 24}, {104, 24}, {120, 24}, {160, 32}} {
-		for _, state := range []string{"overview", "files", "empty"} {
+		for _, state := range []string{"overview", "files", "empty", "sync skipped"} {
 			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], state), func(t *testing.T) {
 				model := previewModel()
 				model.results[0].Repo.DisplayName = "日本語-worktree-long-name"
@@ -98,6 +98,10 @@ func TestViewsFitTerminal(t *testing.T) {
 				model.expanded = state == "files"
 				if state == "empty" {
 					model.results = nil
+				}
+				if state == "sync skipped" {
+					model.results[0].Stale = true
+					model.results[0].Sync = &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}
 				}
 				model.width, model.height = size[0], size[1]
 				model.refresh()
@@ -107,6 +111,41 @@ func TestViewsFitTerminal(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFetchFailureExplainsSkippedSyncAcrossLayouts(t *testing.T) {
+	for _, width := range []int{60, 120} {
+		t.Run(fmt.Sprintf("width-%d", width), func(t *testing.T) {
+			model := newTestModel(testRepos("repo"))
+			model.width, model.height = width, 24
+			model.noFetch, model.sync = false, true
+			updated, _ := model.Update(repoDoneMsg{
+				index: 0,
+				result: inspect.Result{
+					Repo:   testRepo("repo"),
+					Status: status.Parse("## long-feature-branch...origin/main [behind 2]"),
+					Stale:  true,
+					Sync:   &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"},
+				},
+			})
+			model = updated.(Model)
+			view := model.View()
+			for _, text := range []string{"stale", "sync skipped"} {
+				if !strings.Contains(view, text) {
+					t.Fatalf("layout lost %q: %s", text, view)
+				}
+			}
+			if width == 120 && !strings.Contains(view, "fetch failed") {
+				t.Fatalf("wide layout must include skipped-sync reason: %s", view)
+			}
+			if strings.Contains(view, "synced") || strings.Contains(view, "sync failed") {
+				t.Fatalf("fetch failure must show sync was skipped: %s", view)
+			}
+			if lipgloss.Width(view) > width || lipgloss.Height(view) > 24 {
+				t.Fatalf("skipped sync overflows %dx24: %s", width, view)
+			}
+		})
 	}
 }
 

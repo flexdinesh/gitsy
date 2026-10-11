@@ -11,6 +11,8 @@ const DefaultMaxDepth = 3
 const Usage = `Usage: gitsy [options]
 
 Show git status across child repositories and linked worktrees.
+Fetch all remotes fresh every run; linked worktrees share fetching when safe.
+Sync skips repos if fetching fails, including failures from unrelated remotes.
 
 Options:
   --max-depth <n>    Scan repository directories up to n nested levels (default: 3)

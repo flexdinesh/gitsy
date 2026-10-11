@@ -35,6 +35,9 @@ func TestRepoOutcomes(t *testing.T) {
 	}{
 		{name: "local clean", noFetch: true, before: clean},
 		{name: "fetch failure", before: clean, fetchFails: true, wantStale: true, wantWarning: "Fetch failed"},
+		{name: "sync fetch failure", sync: true, before: behind, fetchFails: true, wantStale: true, wantSync: "skipped", wantWarning: "Fetch failed"},
+		{name: "clean sync fetch failure", sync: true, before: clean, fetchFails: true, wantStale: true, wantSync: "skipped", wantWarning: "Fetch failed"},
+		{name: "sync fetch and status failure", sync: true, fetchFails: true, statusFails: true, wantFailed: true, wantStale: true, wantSync: "skipped", wantWarning: "Fetch failed"},
 		{name: "status failure", statusFails: true, wantFailed: true, wantWarning: "Failed to read status"},
 		{name: "sync always fetches", noFetch: true, sync: true, before: behind, wantSync: "synced"},
 		{name: "dirty skipped", sync: true, before: behind + " M file.go\n"},
@@ -79,6 +82,9 @@ func TestRepoOutcomes(t *testing.T) {
 					return git.Result{OK: true}
 				},
 				resolve: func(_ context.Context, _ string, revision string) git.Result {
+					if test.fetchFails {
+						t.Fatal("failed fetch must not resolve commits for sync")
+					}
 					if revision == "@{upstream}" && test.targetFails || revision == "HEAD" && test.headFails {
 						return failure
 					}
@@ -105,6 +111,9 @@ func TestRepoOutcomes(t *testing.T) {
 			}
 			if kind == "synced" && got.Sync.Pulled != 2 {
 				t.Fatalf("expected two pulled commits, got %+v", got.Sync)
+			}
+			if test.wantSync == "skipped" && (got.Sync.Reason != "fetch failed" || merged) {
+				t.Fatal("failed fetch must skip sync with a reason")
 			}
 			if test.wantSync == "" && merged {
 				t.Fatal("ineligible repo must never be merged")

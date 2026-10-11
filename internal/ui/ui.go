@@ -152,6 +152,14 @@ func RowsForRepo(result RepoResult) []Row {
 			summary.Text = "⚠ sync failed · " + summary.Text
 			summary.Tone = "red"
 			summary.Dim = false
+		case "skipped":
+			if result.Sync.Reason == "fetch failed" {
+				summary.Text += " · sync skipped: fetch failed"
+				if !result.Failed {
+					summary.Tone = "yellow"
+				}
+				summary.Dim = false
+			}
 		}
 	}
 
@@ -194,6 +202,9 @@ func CompactSummary(result RepoResult) string {
 	}
 	if result.Stale {
 		parts = append(parts, "⚠ stale")
+	}
+	if result.Sync != nil && result.Sync.Kind == "skipped" && result.Sync.Reason == "fetch failed" {
+		parts = append(parts, "sync skipped: fetch failed")
 	}
 	conflicts := 0
 	for _, item := range result.Status.Items {
