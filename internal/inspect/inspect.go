@@ -38,8 +38,9 @@ func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(messag
 }
 
 func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
+	session := NewSession()
 	return reposContext(ctx, repos, func(ctx context.Context, repo discover.Repo) Result {
-		return RepoContext(ctx, repo, noFetch, syncRepos, warn)
+		return session.RepoContext(ctx, repo, noFetch, syncRepos, warn)
 	})
 }
 
@@ -88,12 +89,7 @@ func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message str
 }
 
 func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) Result {
-	return repoContext(ctx, repo, noFetch, syncRepo, warn, gitCommands{
-		fetch:   git.FetchAllContext,
-		status:  git.ShortStatusContext,
-		merge:   git.FastForwardToContext,
-		resolve: git.ResolveCommitContext,
-	})
+	return NewSession().RepoContext(ctx, repo, noFetch, syncRepo, warn)
 }
 
 func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string), commands gitCommands) Result {
@@ -110,6 +106,10 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 			}
 		}
 	}
+	var syncOutcome *SyncOutcome
+	if syncRepo && stale && ctx.Err() == nil {
+		syncOutcome = &SyncOutcome{Kind: "skipped", Reason: "fetch failed"}
+	}
 
 	statusResult := commands.status(ctx, repo.Path)
 	if !statusResult.OK {
@@ -121,6 +121,7 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 			Status: status.Parse(""),
 			Failed: true,
 			Stale:  stale,
+			Sync:   syncOutcome,
 		}
 	}
 
@@ -129,6 +130,10 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 		Repo:   repo,
 		Status: parsedStatus,
 		Stale:  stale,
+		Sync:   syncOutcome,
+	}
+	if syncRepo && stale {
+		return result
 	}
 
 	if syncRepo && status.CanFastForward(parsedStatus) {

@@ -57,6 +57,8 @@ func TestPlainReportSummaries(t *testing.T) {
 		{"fetch failed", inspect.Result{Status: status.Parse("## main"), Stale: true}, "⚠ stale · main ✓ clean"},
 		{"synced", inspect.Result{Status: status.Parse("## main"), Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 3}}, "main ✓ clean ⤓ synced ↓3"},
 		{"sync failed", inspect.Result{Status: status.Parse("## main...origin/main [behind 3]"), Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed · main ↓3"},
+		{"fetch failed skips sync", inspect.Result{Status: status.Parse("## main...origin/main [behind 3]"), Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ stale · main ↓3 · sync skipped: fetch failed"},
+		{"status failed and sync skipped", inspect.Result{Failed: true, Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ status failed · sync skipped: fetch failed"},
 		{"status failed after sync", inspect.Result{Failed: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 3}}, "⚠ status failed ⤓ synced ↓3"},
 		{"long unicode branch", inspect.Result{Status: status.Parse("## " + strings.Repeat("修正", 80))}, strings.Repeat("修正", 80) + " ✓ clean"},
 	} {

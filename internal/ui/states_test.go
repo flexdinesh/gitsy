@@ -21,6 +21,8 @@ func TestExceptionSummaries(t *testing.T) {
 		{"conflict", RepoResult{Status: status.Parse("## main\nUU file.go")}, "main • 1 conflict", "red"},
 		{"sync failed", RepoResult{Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed", "red"},
 		{"status failed after sync", RepoResult{Failed: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ status failed", "red"},
+		{"fetch failed skips sync", RepoResult{Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ stale", "yellow"},
+		{"status failed and sync skipped", RepoResult{Failed: true, Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ status failed", "red"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			row := RowsForRepo(test.result)[0]
@@ -29,6 +31,9 @@ func TestExceptionSummaries(t *testing.T) {
 			}
 			if test.result.Failed && strings.Contains(row.Text, "clean") {
 				t.Fatal("failed status must not claim clean")
+			}
+			if test.result.Sync != nil && test.result.Sync.Kind == "skipped" && !strings.Contains(row.Text, "sync skipped: fetch failed") {
+				t.Fatalf("fetch failure must explain skipped sync: %#v", row)
 			}
 		})
 	}
@@ -47,6 +52,9 @@ func TestCompactSummaryPrioritizesState(t *testing.T) {
 		{"stale sync", RepoResult{Stale: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ stale · synced ↓2"},
 		{"failed sync", RepoResult{Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed"},
 		{"failed", RepoResult{Failed: true}, "⚠ status failed"},
+		{"fetch failed skips sync", RepoResult{Stale: true, Status: status.Parse("## long-feature-branch...origin/main [behind 2]"), Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ stale · sync skipped: fetch failed · ↓2 · long-feature-branch"},
+		{"status failed and sync skipped", RepoResult{Failed: true, Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ status failed"},
+		{"ordinary sync skip", RepoResult{Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "no upstream"}}, "✓ clean"},
 		{"loading", RepoResult{Loading: true}, "checking status…"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
