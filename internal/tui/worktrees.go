@@ -95,12 +95,12 @@ func (model *Model) worktreeKey(key tea.KeyMsg) (bool, tea.Cmd) {
 			return true, nil
 		}
 		model.notice = ""
-		return true, model.startRemoval(model.selectedResult().Repo, false)
+		return true, model.startRemoval(model.selectedResult().Repo, key.String() == "X")
 	}
 	return false, nil
 }
 
-// startRemoval revalidates fresh Git state; dirty worktrees return NeedsForce for confirmation.
+// startRemoval revalidates fresh Git state; unforced dirty worktrees return NeedsForce for confirmation.
 func (model *Model) startRemoval(repo discover.Repo, force bool) tea.Cmd {
 	model.deleting = repo.Path
 	model.refresh()
@@ -163,7 +163,7 @@ func (model Model) actionLines() []string {
 }
 
 func (model Model) confirmationLines(content int) []string {
-	prompt := "Force delete worktree? Discards changed, untracked, and ignored files. Branch kept."
+	prompt := "Force delete worktree? Discards changed, untracked, ignored, and submodule files. Branch kept."
 	return append(wrapPlain(prompt, content), wrapPlain(displayGroupPath(model.confirm.Path, model.home), content)...)
 }
 

@@ -141,8 +141,8 @@ func TestRemoveWorktreeProtectsFilesAndKeepsBranch(t *testing.T) {
 				cancel()
 			}
 			result := RemoveWorktreeContext(ctx, mainPath, target, force)
-			dirty := state == "untracked" || state == "ignored" || state == "modified"
-			wantRemoved := state == "clean" || force && dirty
+			dirty := state == "untracked" || state == "modified"
+			wantRemoved := state == "clean" || state == "ignored" || force && dirty
 			if result.NeedsForce != (dirty && !force) {
 				t.Fatalf("only changed files should offer force confirmation: %+v", result)
 			}
@@ -177,6 +177,48 @@ func TestRemoveWorktreeProtectsFilesAndKeepsBranch(t *testing.T) {
 			}
 			if result := RemoveWorktreeContext(ctx, mainPath, linked, false); !result.OK {
 				t.Fatalf("retry after cleanup/unlock failed: %+v", result)
+			}
+		})
+	}
+}
+
+func TestRemoveWorktreeRequiresForceForSubmodules(t *testing.T) {
+	for _, scenario := range []string{"uninitialized", "initialized", "deinitialized", "force initialized"} {
+		state, force := strings.CutPrefix(scenario, "force ")
+		t.Run(scenario, func(t *testing.T) {
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+			directory := t.TempDir()
+			mustGit := func(cwd string, args ...string) {
+				t.Helper()
+				args = append([]string{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "protocol.file.allow=always"}, args...)
+				if result := Run(cwd, args...); !result.OK {
+					t.Fatal(result.Stderr)
+				}
+			}
+			subPath := filepath.Join(directory, "sub")
+			mainPath := filepath.Join(directory, "main")
+			linked := filepath.Join(directory, "linked")
+			for _, path := range []string{subPath, mainPath} {
+				mustGit(directory, "init", "-q", "-b", "main", path)
+				mustGit(path, "commit", "--allow-empty", "-qm", "initial")
+			}
+			mustGit(mainPath, "submodule", "add", "-q", subPath, "sub")
+			mustGit(mainPath, "commit", "-qm", "submodule")
+			mustGit(mainPath, "worktree", "add", "-q", "-b", "feature", linked)
+			if state != "uninitialized" {
+				mustGit(linked, "submodule", "update", "-q", "--init")
+			}
+			if state == "deinitialized" {
+				mustGit(linked, "submodule", "deinit", "-q", "--all")
+			}
+			result := RemoveWorktreeContext(context.Background(), mainPath, linked, force)
+			wantForce := state != "uninitialized" && !force
+			if result.NeedsForce != wantForce || result.OK == wantForce {
+				t.Fatalf("submodules must require force confirmation only when Git requires --force: %+v", result)
+			}
+			if _, err := os.Stat(linked); wantForce == os.IsNotExist(err) {
+				t.Fatalf("unexpected worktree presence: %v", err)
 			}
 		})
 	}

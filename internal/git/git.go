@@ -221,14 +221,26 @@ func RemoveWorktreeContext(ctx context.Context, mainPath, worktreePath string, f
 		if worktree.Locked {
 			return fail("Worktree is locked; unlock it before deleting.")
 		}
-		checked := RunContext(ctx, worktree.Path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none")
+		checked := RunContext(ctx, worktree.Path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 		if !checked.OK {
 			return WorktreeRemovalResult{Result: checked}
 		}
 		if checked.Stdout != "" && !force {
 			return WorktreeRemovalResult{
-				Result:     Result{Stderr: "Worktree has changed, untracked, or ignored files.", Status: -1},
+				Result:     Result{Stderr: "Worktree has changed or untracked files.", Status: -1},
 				NeedsForce: true,
+			}
+		}
+		if !force {
+			submodules, result := worktreeHasSubmodules(ctx, worktree.Path)
+			if !result.OK {
+				return WorktreeRemovalResult{Result: result}
+			}
+			if submodules {
+				return WorktreeRemovalResult{
+					Result:     Result{Stderr: "Worktree has submodules.", Status: -1},
+					NeedsForce: true,
+				}
 			}
 		}
 		args := []string{"worktree", "remove"}
@@ -238,4 +250,29 @@ func RemoveWorktreeContext(ctx context.Context, mainPath, worktreePath string, f
 		return WorktreeRemovalResult{Result: RunContext(ctx, mainPath, append(args, "--", worktree.Path)...)}
 	}
 	return fail("Worktree is no longer registered with this repository.")
+}
+
+// Mirror git worktree remove, which requires --force for a worktree modules directory or populated submodules.
+func worktreeHasSubmodules(ctx context.Context, path string) (bool, Result) {
+	gitDir := RunContext(ctx, path, "rev-parse", "--absolute-git-dir")
+	if !gitDir.OK {
+		return false, gitDir
+	}
+	if info, err := os.Stat(filepath.Join(strings.TrimSpace(gitDir.Stdout), "modules")); err == nil && info.IsDir() {
+		return true, gitDir
+	}
+	listed := RunContext(ctx, path, "ls-files", "--stage", "-z")
+	if !listed.OK {
+		return false, listed
+	}
+	for _, entry := range strings.Split(listed.Stdout, "\x00") {
+		meta, name, ok := strings.Cut(entry, "\t")
+		if !ok || !strings.HasPrefix(meta, "160000 ") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(path, name, ".git")); err == nil {
+			return true, listed
+		}
+	}
+	return false, listed
 }
