@@ -87,9 +87,9 @@ func TestWorktreeDeleteRemovesExactTargetAndUpdatesBothTabs(t *testing.T) {
 		t.Fatal("X must only act in Worktrees")
 	}
 	model, _ = keyModel(model, "tab")
-	model, command = keyModel(model, "X")
+	model, command = keyModel(model, "x")
 	if command == nil || model.confirm != nil || model.deleting != path || calls != 0 || !strings.Contains(model.View(), path) {
-		t.Fatal("X must start async removal without confirmation and show target")
+		t.Fatal("x must start async removal without confirmation and show target")
 	}
 	for _, key := range []string{"x", "y", "down", "tab"} {
 		var ignored tea.Cmd
@@ -228,6 +228,51 @@ func TestWorktreeForceDeleteRequiresConfirmation(t *testing.T) {
 				t.Fatal("force deletion must remove all appearances")
 			}
 		})
+	}
+}
+
+func TestWorktreeShiftXForceDeletesWithoutConfirmation(t *testing.T) {
+	model := worktreeTestModel()
+	target := model.results[1].Repo
+	model.results[1].Status = status.Parse("## feature\n?? untracked\n")
+	calls := 0
+	model.remove = func(_ context.Context, owner, path string, force bool) git.WorktreeRemovalResult {
+		calls++
+		if owner != target.Worktree.MainPath || path != target.Path || !force {
+			t.Fatal("X must force remove the selected worktree")
+		}
+		return git.WorktreeRemovalResult{Result: git.Result{OK: true}}
+	}
+	model, command := keyModel(model, "X")
+	if command != nil || model.deleting != "" {
+		t.Fatal("X must only act in Worktrees")
+	}
+	model, _ = keyModel(model, "tab")
+	model, command = keyModel(model, "X")
+	if command == nil || model.confirm != nil || model.deleting != target.Path || calls != 0 {
+		t.Fatal("X must start async force removal without confirmation")
+	}
+	updated, _ := model.Update(command())
+	model = updated.(Model)
+	if calls != 1 || model.confirm != nil || len(model.displayResults()) != 0 || !strings.Contains(model.View(), "Branch kept") {
+		t.Fatal("X must remove dirty worktree without confirmation")
+	}
+}
+
+func TestWorktreeShiftXKeepsProtectionChecks(t *testing.T) {
+	model := worktreeTestModel()
+	model.remove = func(_ context.Context, _, _ string, force bool) git.WorktreeRemovalResult {
+		if !force {
+			t.Fatal("X must request force")
+		}
+		return git.WorktreeRemovalResult{Result: git.Result{Stderr: "Worktree is locked; unlock it before deleting."}}
+	}
+	model, _ = keyModel(model, "tab")
+	model, command := keyModel(model, "X")
+	updated, _ := model.Update(command())
+	model = updated.(Model)
+	if len(model.visibleResults()) != 1 || model.confirm != nil || !strings.Contains(model.notice, "locked") {
+		t.Fatal("force deletion refusal must retain row and explain problem")
 	}
 }
 

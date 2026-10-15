@@ -1129,7 +1129,7 @@ func (model Model) footerPlain(content int) string {
 		"q quit",
 	}
 	if model.worktrees {
-		hints = []string{"↑/↓ j/k move · tab views · f files · x delete · q quit", "↑↓ · tab views · x delete · q quit", "tab views · x delete · q", "tab · x · q", "q"}
+		hints = []string{"↑/↓ j/k move · tab views · f files · x delete · X force · q quit", "↑↓ · tab views · x delete · X force · q quit", "tab views · x delete · q", "tab · x · q", "q"}
 	}
 	hint := hints[len(hints)-1]
 	for _, option := range hints {

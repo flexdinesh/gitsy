@@ -95,12 +95,12 @@ func (model *Model) worktreeKey(key tea.KeyMsg) (bool, tea.Cmd) {
 			return true, nil
 		}
 		model.notice = ""
-		return true, model.startRemoval(model.selectedResult().Repo, false)
+		return true, model.startRemoval(model.selectedResult().Repo, key.String() == "X")
 	}
 	return false, nil
 }
 
-// startRemoval revalidates fresh Git state; dirty worktrees return NeedsForce for confirmation.
+// startRemoval revalidates fresh Git state; unforced dirty worktrees return NeedsForce for confirmation.
 func (model *Model) startRemoval(repo discover.Repo, force bool) tea.Cmd {
 	model.deleting = repo.Path
 	model.refresh()
