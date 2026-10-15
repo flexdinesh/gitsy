@@ -66,21 +66,14 @@ func (model *Model) worktreeKey(key tea.KeyMsg) (bool, tea.Cmd) {
 		switch key.String() {
 		case "esc", "n", "N":
 			model.confirm = nil
-			model.force = false
 			model.refresh()
 		case "y", "Y":
 			if !model.canConfirm() {
 				return true, nil
 			}
 			repo := *model.confirm
-			force := model.force
-			model.force = false
 			model.confirm = nil
-			model.deleting = repo.Path
-			model.refresh()
-			return true, func() tea.Msg {
-				return worktreeRemovedMsg{repo: repo, result: model.remove(model.ctx, repo.Worktree.MainPath, repo.Path, force)}
-			}
+			return true, model.startRemoval(repo, true)
 		}
 		return true, nil
 	}
@@ -96,20 +89,24 @@ func (model *Model) worktreeKey(key tea.KeyMsg) (bool, tea.Cmd) {
 		if !model.worktrees || model.browseEmpty || len(model.displayResults()) == 0 {
 			return true, nil
 		}
-		result := model.selectedResult()
-		switch {
-		case model.pending() > 0:
+		if model.pending() > 0 {
 			model.notice = "Wait for inspections to finish before deleting."
-		default:
-			repo := result.Repo
-			model.notice = ""
-			model.confirm = &repo
-			model.force = false
+			model.refresh()
+			return true, nil
 		}
-		model.refresh()
-		return true, nil
+		model.notice = ""
+		return true, model.startRemoval(model.selectedResult().Repo, false)
 	}
 	return false, nil
+}
+
+// startRemoval revalidates fresh Git state; dirty worktrees return NeedsForce for confirmation.
+func (model *Model) startRemoval(repo discover.Repo, force bool) tea.Cmd {
+	model.deleting = repo.Path
+	model.refresh()
+	return func() tea.Msg {
+		return worktreeRemovedMsg{repo: repo, result: model.remove(model.ctx, repo.Worktree.MainPath, repo.Path, force)}
+	}
 }
 
 func (model Model) tabPlain() string {
@@ -166,10 +163,7 @@ func (model Model) actionLines() []string {
 }
 
 func (model Model) confirmationLines(content int) []string {
-	prompt := "Delete worktree? Branch kept."
-	if model.force {
-		prompt = "Force delete worktree? Discards changed, untracked, and ignored files. Branch kept."
-	}
+	prompt := "Force delete worktree? Discards changed, untracked, and ignored files. Branch kept."
 	return append(wrapPlain(prompt, content), wrapPlain(displayGroupPath(model.confirm.Path, model.home), content)...)
 }
 
@@ -197,7 +191,7 @@ func (model Model) viewportHeight(height int) int {
 func (model Model) renderAction(width int) string {
 	lines := model.actionLines()
 	tone := "yellow"
-	if model.force {
+	if model.confirm != nil {
 		tone = "red"
 	}
 	for index := range lines {
