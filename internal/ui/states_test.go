@@ -18,7 +18,7 @@ func TestExceptionSummaries(t *testing.T) {
 		{"failed", RepoResult{Failed: true}, "⚠ status failed", "red"},
 		{"stale", RepoResult{Stale: true}, "⚠ stale", "yellow"},
 		{"behind", RepoResult{Status: status.Parse("## main...origin/main [behind 2]")}, "main ↓2", "yellow"},
-		{"conflict", RepoResult{Status: status.Parse("## main\nUU file.go")}, "main • 1 conflict", "red"},
+		{"conflict", RepoResult{Status: status.Parse("## main\nUU file.go")}, "main · 1 conflict", "red"},
 		{"sync failed", RepoResult{Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed", "red"},
 		{"status failed after sync", RepoResult{Failed: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ status failed", "red"},
 		{"fetch failed skips sync", RepoResult{Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ stale", "yellow"},
@@ -48,14 +48,18 @@ func TestCompactSummaryPrioritizesState(t *testing.T) {
 		{"changes", RepoResult{Status: status.Parse("## long-feature-branch\n M one.go\n?? two.go")}, "2 files · long-feature-branch"},
 		{"conflict", RepoResult{Status: status.Parse("## long-feature-branch\nUU one.go")}, "1 conflict · long-feature-branch"},
 		{"behind", RepoResult{Status: status.Parse("## long-feature-branch...origin/main [ahead 1, behind 3]")}, "↓3 · ↑1 · long-feature-branch"},
-		{"synced", RepoResult{Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "synced ↓2"},
-		{"stale sync", RepoResult{Stale: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ stale · synced ↓2"},
+		{"synced", RepoResult{Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "synced 2 commits"},
+		{"stale sync", RepoResult{Stale: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, "⚠ stale · synced 2 commits"},
 		{"failed sync", RepoResult{Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed"},
 		{"failed", RepoResult{Failed: true}, "⚠ status failed"},
 		{"fetch failed skips sync", RepoResult{Stale: true, Status: status.Parse("## long-feature-branch...origin/main [behind 2]"), Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ stale · sync skipped: fetch failed · ↓2 · long-feature-branch"},
 		{"status failed and sync skipped", RepoResult{Failed: true, Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ status failed"},
 		{"ordinary sync skip", RepoResult{Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "no upstream"}}, "✓ clean"},
 		{"loading", RepoResult{Loading: true}, "checking status…"},
+		{"fetching", RepoResult{Loading: true, Fetching: true}, "fetching…"},
+		{"one file", RepoResult{Status: status.Parse("## main\n M one.go")}, "1 file · main"},
+		{"conflicts", RepoResult{Status: status.Parse("## main\nUU one.go\nUU two.go")}, "2 conflicts · main"},
+		{"synced one", RepoResult{Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 1}}, "synced 1 commit"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := CompactSummary(test.result); got != test.want {
@@ -69,7 +73,7 @@ func TestAllConflictsKeepTheirLabels(t *testing.T) {
 	for _, code := range []string{"DD", "AU", "UD", "UA", "DU", "AA", "UU"} {
 		t.Run(code, func(t *testing.T) {
 			rows := RowsForRepo(RepoResult{Status: status.Parse("## main\n" + code + " file.go")})
-			if len(rows) != 2 || rows[0].Text != "main • 1 conflict" || rows[1].Text != "  ! conflict file.go" {
+			if len(rows) != 2 || rows[0].Text != "main · 1 conflict" || rows[1].Text != "  ! conflict file.go" {
 				t.Fatalf("conflict must remain explicit in summary and detail: %#v", rows)
 			}
 			if rows[1].Tone != "red" || !rows[1].Bold || rows[1].Dim {

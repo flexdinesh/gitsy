@@ -30,13 +30,13 @@ func TestPlainReportGroupsAndWorktrees(t *testing.T) {
 		"  api (/workspace/api)\n" +
 		"    main ↓3\n" +
 		"  api (/worktrees/api-fix · worktree)\n" +
-		"    fix/auth • 2 modified • 1 untracked\n\n" +
+		"    fix/auth · 2 modified · 1 untracked\n\n" +
 		"/worktrees\n" +
 		"  api (/worktrees/api-fix · worktree)\n" +
-		"    fix/auth • 2 modified • 1 untracked\n\n" +
+		"    fix/auth · 2 modified · 1 untracked\n\n" +
 		"/empty\n" +
 		"  No child git repositories found.\n\n" +
-		"gitsy • 2 repos • 1 changed • 1 behind\n"
+		"gitsy · 2 repos · 1 behind · 1 changed\n"
 	if got := PlainReport(workspace, results); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -51,15 +51,16 @@ func TestPlainReportSummaries(t *testing.T) {
 		{"clean", inspect.Result{Status: status.Parse("## main")}, "main ✓ clean"},
 		{"detached", inspect.Result{Status: status.Parse("## HEAD (no branch)")}, "HEAD (no branch) ✓ clean"},
 		{"ahead and behind", inspect.Result{Status: status.Parse("## main...origin/main [ahead 1, behind 2]")}, "main ↑1 ↓2"},
-		{"conflict", inspect.Result{Status: status.Parse("## main\nUU hidden.go")}, "main • 1 conflict"},
-		{"categories", inspect.Result{Status: status.Parse("## main\n M hidden.go\nM  staged.go\nA  added.go\n?? untracked.go\n D removed.go\nR  old.go -> renamed.go")}, "main • 1 modified • 1 staged • 1 added • 1 untracked • 1 removed • 1 renamed"},
+		{"conflict", inspect.Result{Status: status.Parse("## main\nUU hidden.go")}, "main · 1 conflict"},
+		{"conflicts", inspect.Result{Status: status.Parse("## main\nUU hidden.go\nAA other.go")}, "main · 2 conflicts"},
+		{"categories", inspect.Result{Status: status.Parse("## main\n M hidden.go\nM  staged.go\nA  added.go\n?? untracked.go\n D removed.go\nR  old.go -> renamed.go")}, "main · 1 modified · 1 staged · 1 added · 1 untracked · 1 removed · 1 renamed"},
 		{"status failed", inspect.Result{Failed: true}, "⚠ status failed"},
 		{"fetch failed", inspect.Result{Status: status.Parse("## main"), Stale: true}, "⚠ stale · main ✓ clean"},
-		{"synced", inspect.Result{Status: status.Parse("## main"), Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 3}}, "main ✓ clean ⤓ synced ↓3"},
+		{"synced", inspect.Result{Status: status.Parse("## main"), Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 3}}, "main ✓ clean · synced 3 commits"},
 		{"sync failed", inspect.Result{Status: status.Parse("## main...origin/main [behind 3]"), Sync: &inspect.SyncOutcome{Kind: "failed"}}, "⚠ sync failed · main ↓3"},
 		{"fetch failed skips sync", inspect.Result{Status: status.Parse("## main...origin/main [behind 3]"), Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ stale · main ↓3 · sync skipped: fetch failed"},
 		{"status failed and sync skipped", inspect.Result{Failed: true, Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}}, "⚠ status failed · sync skipped: fetch failed"},
-		{"status failed after sync", inspect.Result{Failed: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 3}}, "⚠ status failed ⤓ synced ↓3"},
+		{"status failed after sync", inspect.Result{Failed: true, Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 3}}, "⚠ status failed · synced 3 commits"},
 		{"long unicode branch", inspect.Result{Status: status.Parse("## " + strings.Repeat("修正", 80))}, strings.Repeat("修正", 80) + " ✓ clean"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -93,7 +94,7 @@ func TestPlainReportEscapesControls(t *testing.T) {
 	want := "/workspace\\u0007\n" +
 		"  repo\\u001b[31m (/workspace/repo\\t\\r\\n)\n" +
 		"    main\\u009b\\u001b[2J ✓ clean\n\n" +
-		"gitsy • 1 repos\n"
+		"gitsy · 1 repo\n"
 	if got := PlainReport(workspace, results); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

@@ -110,7 +110,7 @@ func TestGroupedInspectionsRunOnceAndUpdateEveryAppearance(t *testing.T) {
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
 	model = updated.(Model)
 	view := model.View()
-	if model.selected != 2 || strings.Count(view, "modified changed.go") != 3 || strings.Count(view, "synced ↓2") < 3 {
+	if model.selected != 2 || strings.Count(view, "modified changed.go") != 3 || strings.Count(view, "synced 2 commits") < 3 {
 		t.Fatalf("completion and file toggle must update all appearances:\n%s", view)
 	}
 	updated, _ = model.Update(repoDoneMsg{index: 0, result: inspect.Result{Repo: testRepo("api"), Failed: true}})

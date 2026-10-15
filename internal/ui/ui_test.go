@@ -68,7 +68,7 @@ func TestBuildRowsAppendsChangeCounts(t *testing.T) {
 		}, "\n")),
 	}})
 
-	if len(rows) == 0 || rows[0].Text != "main • 2 modified • 1 untracked" {
+	if len(rows) == 0 || rows[0].Text != "main · 2 modified · 1 untracked" {
 		t.Fatalf("expected summary with change counts, got %#v", rows)
 	}
 	if !rows[1].Dim || !strings.HasPrefix(rows[1].Text, "  ") {
@@ -83,16 +83,49 @@ func TestBuildRowsShowsLoadingRepo(t *testing.T) {
 		DisplayName: "repo",
 		Source:      discover.SourceScan,
 	}
-	rows := BuildRows([]RepoResult{{
-		Repo:    repo,
-		Loading: true,
-	}})
+	for _, test := range []struct {
+		fetching bool
+		want     string
+	}{
+		{false, "checking status…"},
+		{true, "fetching…"},
+	} {
+		rows := BuildRows([]RepoResult{{
+			Repo:     repo,
+			Loading:  true,
+			Fetching: test.fetching,
+		}})
 
-	if len(rows) != 1 {
-		t.Fatalf("expected one loading row, got %d", len(rows))
+		if len(rows) != 1 {
+			t.Fatalf("expected one loading row, got %d", len(rows))
+		}
+		if rows[0].Repo != "repo" || rows[0].Text != test.want {
+			t.Fatalf("expected loading row %q, got %#v", test.want, rows[0])
+		}
+		if compact := CompactSummary(RepoResult{Loading: true, Fetching: test.fetching}); compact != test.want {
+			t.Fatalf("compact loading must match regular wording: %q", compact)
+		}
 	}
-	if rows[0].Repo != "repo" || rows[0].Text != "fetching status…" {
-		t.Fatalf("expected loading row, got %#v", rows[0])
+}
+
+func TestCountPluralizesNouns(t *testing.T) {
+	for _, test := range []struct {
+		count int
+		noun  string
+		want  string
+	}{
+		{0, "repo", "0 repos"},
+		{1, "repo", "1 repo"},
+		{2, "repo", "2 repos"},
+		{1, "unique worktree", "1 unique worktree"},
+		{3, "commit", "3 commits"},
+	} {
+		if got := Count(test.count, test.noun); got != test.want {
+			t.Fatalf("Count(%d, %q) = %q, want %q", test.count, test.noun, got, test.want)
+		}
+	}
+	if got := Title([]RepoResult{{}}, 1); got != "gitsy · 1 repo" {
+		t.Fatalf("single repo title = %q", got)
 	}
 }
 
@@ -113,7 +146,7 @@ func TestTitleSummarizesRepoStates(t *testing.T) {
 	}
 
 	got := Title(results, len(results))
-	want := "gitsy • 4 repos • 1 changed • 1 behind • 2 failed"
+	want := "gitsy · 4 repos · 2 failed · 1 behind · 1 changed"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
@@ -156,7 +189,40 @@ func TestBuildRowsUsesGitStatusLabelsAndTones(t *testing.T) {
 	if got["- removed removed.go"] != "red" {
 		t.Fatalf("expected removed row to be red, got %#v", got)
 	}
-	if got["+ untracked untracked.go"] != "red" {
-		t.Fatalf("expected untracked row to use git untracked red, got %#v", got)
+	if got["+ untracked untracked.go"] != "muted" {
+		t.Fatalf("expected untracked row to stay off danger red, got %#v", got)
+	}
+}
+
+func TestTitleTalliesByPriority(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		results []RepoResult
+		want    string
+	}{
+		{"clean", []RepoResult{{Status: status.Parse("## main...origin/main")}}, "gitsy · 1 repo"},
+		{"ahead", []RepoResult{{Status: status.Parse("## main...origin/main [ahead 2]")}, {Status: status.Parse("## main...origin/main [ahead 1, behind 1]")}}, "gitsy · 2 repos · 1 behind · 2 ahead"},
+		{"sync", []RepoResult{
+			{Status: status.Parse("## main...origin/main"), Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}},
+			{Status: status.Parse("## main...origin/main [behind 1]\n M a.go"), Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}},
+			{Failed: true},
+		}, "gitsy · 3 repos · 1 failed · 1 behind · 1 stale · 1 changed · 1 skipped · 1 synced"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := Title(test.results, len(test.results)); got != test.want {
+				t.Fatalf("got %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSummaryTonesMatchRowTones(t *testing.T) {
+	changed := RowsForRepo(RepoResult{Status: status.Parse("## main...origin/main\n M a.go")})[0]
+	if SummaryTone("changed") != changed.Tone {
+		t.Fatalf("header changed tone %q must match row tone %q", SummaryTone("changed"), changed.Tone)
+	}
+	failed := RowsForRepo(RepoResult{Failed: true})[0]
+	if SummaryTone("failed") != failed.Tone || SummaryTone("behind") != "yellow" || SummaryTone("synced") != "green" {
+		t.Fatal("summary tones must follow row semantics")
 	}
 }

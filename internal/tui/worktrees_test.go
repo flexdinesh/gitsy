@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/flexdinesh/gitsy/internal/discover"
 	"github.com/flexdinesh/gitsy/internal/git"
+	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
 	"github.com/muesli/termenv"
 )
@@ -57,7 +58,7 @@ func TestWorktreeTabFiltersAndRestoresSelection(t *testing.T) {
 	if !model.worktrees || len(model.visibleResults()) != 1 || len(model.displayResults()) != 2 || model.selected != 0 {
 		t.Fatalf("worktree tab must share overlapping groups: %+v", model.displayResults())
 	}
-	if view := model.View(); !strings.Contains(view, "[Worktrees]") || !strings.Contains(view, "1 unique worktrees") || !strings.Contains(view, "x delete") {
+	if view := model.View(); !strings.Contains(view, "[Worktrees]") || !strings.Contains(view, "1 unique worktree") || !strings.Contains(view, "x delete") {
 		t.Fatal(view)
 	}
 	model, _ = keyModel(model, "down")
@@ -287,8 +288,8 @@ func TestForceConfirmationRequiresVisibleWarningAndPath(t *testing.T) {
 	}
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
 	model = updated.(Model)
-	if !model.canConfirm() || strings.Join(model.actionLines(), "") !=
-		"Force delete worktree? Discards changed, untracked, ignored, and submodule files. Branch kept."+model.confirm.Path {
+	if !model.canConfirm() || strings.Join(model.actionLines(), " ") !=
+		"Force delete worktree? Discards changed, untracked, ignored, and submodule files. Branch kept. "+model.confirm.Path {
 		t.Fatal("resize must reveal complete warning and path")
 	}
 }
@@ -535,5 +536,307 @@ func TestWorktreeColumnsFitLongUnicodeIdentities(t *testing.T) {
 				t.Fatal("view must fit terminal")
 			}
 		})
+	}
+}
+
+func TestKeyBurstNeverDeletesOrConfirms(t *testing.T) {
+	for _, keys := range []string{"xx", "XX", "jx", "yY", "xy"} {
+		for _, confirming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/confirm=%t", keys, confirming), func(t *testing.T) {
+				model := worktreeTestModel()
+				model.remove = func(context.Context, string, string, bool) git.WorktreeRemovalResult {
+					t.Fatal("burst must not remove worktrees")
+					return git.WorktreeRemovalResult{}
+				}
+				model, _ = keyModel(model, "tab")
+				if confirming {
+					model.confirm = &model.results[1].Repo
+				}
+				updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(keys)})
+				model = updated.(Model)
+				if command != nil {
+					if message := command(); message != nil {
+						t.Fatalf("burst started work: %#v", message)
+					}
+				}
+				if model.deleting != "" || (model.confirm != nil) != confirming {
+					t.Fatal("burst must leave deletion state unchanged")
+				}
+			})
+		}
+	}
+}
+
+func TestDeleteNoticeNamesWorktree(t *testing.T) {
+	for _, test := range []struct {
+		path, want string
+	}{
+		{"/workspace/repo-clean-wt", "Deleted repo-clean-wt. Branch kept."},
+		{"/workspace/" + strings.Repeat("x", 40), "Deleted " + strings.Repeat("x", maxRepoWidthCap-1) + "…. Branch kept."},
+	} {
+		model := worktreeTestModel()
+		model.results[1].Repo.Path = test.path
+		model.remove = func(context.Context, string, string, bool) git.WorktreeRemovalResult {
+			return git.WorktreeRemovalResult{Result: git.Result{OK: true}}
+		}
+		model, _ = keyModel(model, "tab")
+		model, command := keyModel(model, "x")
+		updated, _ := model.Update(command())
+		if got := updated.(Model).notice; got != test.want {
+			t.Fatalf("notice = %q, want %q", got, test.want)
+		}
+	}
+}
+
+func TestEnlargeInstructionStaysReadable(t *testing.T) {
+	for _, size := range [][2]int{{20, 6}, {24, 8}, {31, 8}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			model := worktreeTestModel()
+			model.results[1].Repo.Path = "/workspace/" + strings.Repeat("long-directory/", 6) + "target"
+			model.width, model.height = size[0], size[1]
+			model, _ = keyModel(model, "tab")
+			model.confirm = &model.results[1].Repo
+			model.refresh()
+			view := model.View()
+			if model.canConfirm() || !strings.Contains(strings.Join(strings.Fields(view), " "), "Enlarge terminal to review path.") {
+				t.Fatalf("enlargement instruction must be fully readable:\n%s", view)
+			}
+			if !strings.HasSuffix(strings.TrimRight(strings.Split(view, "\n")[lipgloss.Height(view)-1], " "), "esc cancel") {
+				t.Fatalf("cancellation must remain on the last line:\n%s", view)
+			}
+		})
+	}
+}
+
+func TestConfirmationWrapsWordsAndPathSegments(t *testing.T) {
+	model := worktreeTestModel()
+	model.results[1].Repo.Path = "/workspace/team/feature-auth"
+	model.width, model.height = 40, 24
+	model, _ = keyModel(model, "tab")
+	model.confirm = &model.results[1].Repo
+	model.refresh()
+	want := []string{"Force delete worktree? Discards", "changed, untracked, ignored, and", "submodule files. Branch kept.", "/workspace/team/feature-auth"}
+	if got := model.actionLines(); strings.Join(got, "|") != strings.Join(want, "|") || !model.canConfirm() {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestCompactViewPinsFooterToLastLine(t *testing.T) {
+	for _, size := range [][2]int{{20, 6}, {31, 8}, {31, 10}, {40, 8}} {
+		for _, state := range []string{"repos", "worktrees", "empty", "notice", "deleting"} {
+			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], state), func(t *testing.T) {
+				model := worktreeTestModel()
+				model.width, model.height = size[0], size[1]
+				if state != "repos" {
+					model, _ = keyModel(model, "tab")
+				}
+				switch state {
+				case "empty":
+					model.results[1].Repo.Worktree = nil
+				case "notice":
+					model.notice = "Delete failed: locked"
+				case "deleting":
+					model.deleting = model.results[1].Repo.Path
+				}
+				model.refresh()
+				view := model.View()
+				lines := strings.Split(view, "\n")
+				if len(lines) != size[1] || strings.TrimSpace(lines[len(lines)-1]) != strings.TrimSpace(model.footerPlain(size[0])) {
+					t.Fatalf("footer must sit on line %d:\n%s", size[1], view)
+				}
+			})
+		}
+	}
+}
+
+func TestCompactSummaryDropsWholeSegmentsByPriority(t *testing.T) {
+	parts := []string{"27 repos", "1 failed", "17 changed", "2 behind", "1 stale"}
+	for _, test := range []struct {
+		width int
+		want  string
+	}{
+		{80, "gitsy · 27 repos · 1 failed · 17 changed · 2 behind · 1 stale"},
+		{53, "27 repos · 1 failed · 17 changed · 2 behind · 1 stale"},
+		{40, "27 repos · 1 failed · 2 behind · 1 stale"},
+		{30, "27 repos · 1 failed · 2 behind"},
+		{24, "27 repos · 1 failed"},
+		{10, "27 repos"},
+		{5, "27 r…"},
+	} {
+		if got := compactSummary(parts, test.width); got != test.want {
+			t.Fatalf("width %d: got %q, want %q", test.width, got, test.want)
+		}
+	}
+	if got := compactSummary([]string{"28 repos"}, 24); got != "gitsy · 28 repos" {
+		t.Fatalf("compact summary must keep the title when it fits: %q", got)
+	}
+}
+
+func TestContextRailShowsSkippedSyncOnceAndAbbreviatesPaths(t *testing.T) {
+	for _, test := range []struct {
+		reason string
+		want   string
+	}{
+		{"fetch failed", "sync skipped: fetch failed"},
+		{"no upstream", "Sync skipped: no upstream"},
+	} {
+		t.Run(test.reason, func(t *testing.T) {
+			model := worktreeTestModel()
+			model.home = "/home/user"
+			model.results[1].Repo.Path = "/home/user/work/feature"
+			model.results[1].Repo.Worktree.MainPath = "/home/user/work/main"
+			model.results[1].Sync = &inspect.SyncOutcome{Kind: "skipped", Reason: test.reason}
+			model, _ = keyModel(model, "tab")
+			info := strings.Join(model.infoLines(80), "\n")
+			if strings.Count(strings.ToLower(info), "sync skipped") != 1 || !strings.Contains(info, test.want) {
+				t.Fatalf("skipped sync must appear once:\n%s", info)
+			}
+			if !strings.Contains(info, "~/work/feature") || !strings.Contains(info, "~/work/main") || strings.Contains(info, "/home/user") {
+				t.Fatalf("rail paths must use ~:\n%s", info)
+			}
+		})
+	}
+}
+
+func TestEmptyWorktreesHideDeleteHintsAndRailDuplicate(t *testing.T) {
+	model := worktreeTestModel()
+	model.results[1].Repo.Worktree = nil
+	model, _ = keyModel(model, "tab")
+	view := model.View()
+	if strings.Contains(view, "x delete") || strings.Contains(view, "X force") {
+		t.Fatalf("delete hints need a selectable worktree:\n%s", view)
+	}
+	info := strings.Join(model.infoLines(30), "\n")
+	if strings.Contains(info, "No linked worktrees found.") || !strings.Contains(info, "Nothing selected.") {
+		t.Fatalf("rail must not repeat the ledger explanation:\n%s", info)
+	}
+	if !strings.Contains(view, "No linked worktrees found.") {
+		t.Fatalf("ledger must keep the explanation:\n%s", view)
+	}
+}
+
+func TestWorktreeCountsUseSingularNouns(t *testing.T) {
+	model := worktreeTestModel()
+	model.groups = model.groups[1:2]
+	model, _ = keyModel(model, "tab")
+	view := model.View()
+	if !strings.Contains(view, "1 worktree ") || !strings.Contains(view, "1/1 worktree ") || strings.Contains(view, "1 worktrees") {
+		t.Fatalf("single worktree counts must be singular:\n%s", view)
+	}
+}
+
+func TestDetailStripShowsSelectedContextWhenRailHidden(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		width  int
+		reason string
+		want   string
+	}{
+		{"path and upstream", 80, "", "~/work/feature · origin/feature"},
+		{"reason before upstream", 80, "fetch failed: auth", "~/work/feature · fetch failed: auth · origin/feature"},
+		{"narrow keeps reason", 40, "fetch timed out after 30s", "…feature · fetch timed out after 30s"},
+		{"rail shown", 120, "fetch failed: auth", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := worktreeTestModel()
+			model.home = "/home/user"
+			model.results[1].Repo.Path = "/home/user/work/feature"
+			model.results[1].Reason = test.reason
+			model.results[1].Stale = test.reason != ""
+			model.width, model.height = test.width, 24
+			model, _ = keyModel(model, "tab")
+			lines := strings.Split(model.View(), "\n")
+			if len(lines) != 24 {
+				t.Fatalf("view must fill the terminal: %d lines", len(lines))
+			}
+			strip := strings.TrimSpace(lines[22])
+			if test.want == "" {
+				if model.detailHeight(test.width) != 0 || strings.Contains(strip, "fetch failed") {
+					t.Fatalf("rail layouts must not add a strip: %q", strip)
+				}
+				return
+			}
+			if strip != test.want {
+				t.Fatalf("strip = %q, want %q", strip, test.want)
+			}
+		})
+	}
+}
+
+func TestDetailStripKeepsLayoutStableWithoutSelection(t *testing.T) {
+	model := worktreeTestModel()
+	model.width, model.height = 80, 24
+	model, _ = keyModel(model, "tab")
+	capacity := model.capacity
+	model.results[1].Repo.Worktree = nil
+	model.refresh()
+	lines := strings.Split(model.View(), "\n")
+	if model.capacity != capacity || strings.TrimSpace(lines[22]) != "" {
+		t.Fatalf("empty selection must keep the reserved strip blank: capacity %d->%d %q", capacity, model.capacity, lines[22])
+	}
+	model.results[1].Repo.Worktree = &git.Worktree{MainPath: model.results[0].Repo.Path}
+	model.confirm = &model.results[1].Repo
+	model.refresh()
+	if model.detailHeight(80) != 0 {
+		t.Fatal("confirmation replaces the strip")
+	}
+}
+
+func TestShortReasonAppearsInRailAndCompactView(t *testing.T) {
+	model := worktreeTestModel()
+	model.results[1].Stale = true
+	model.results[1].Reason = "remote unreachable"
+	model, _ = keyModel(model, "tab")
+	if info := strings.Join(model.infoLines(30), "\n"); strings.Count(info, "remote unreachable") != 1 {
+		t.Fatalf("rail must show the short reason once:\n%s", info)
+	}
+	model.width, model.height = 31, 8
+	model.refresh()
+	if view := model.View(); !strings.Contains(view, "remote unreachable") {
+		t.Fatalf("compact view must show the short reason:\n%s", view)
+	}
+}
+
+func TestRepositoriesTabTagsLinkedWorktrees(t *testing.T) {
+	model := worktreeTestModel()
+	model.results[1].Repo.DisplayName = "api"
+	model.results[1].Repo.Path = "/workspace/spike-wt"
+	model.refresh()
+	view := model.View()
+	if !strings.Contains(view, "api · spike-wt") {
+		t.Fatalf("linked worktree rows need a worktree tag:\n%s", view)
+	}
+	model, _ = keyModel(model, "tab")
+	if strings.Contains(model.View(), "api · spike-wt") {
+		t.Fatal("Worktrees tab already has a Worktree column")
+	}
+}
+
+func TestIdentityPartsKeepNameFirst(t *testing.T) {
+	for _, test := range []struct {
+		name, tag string
+		width     int
+		want      string
+	}{
+		{"repo-ahead", "spike-wt", 28, "repo-ahead · spike-wt"},
+		{"repo-ahead", "spike-wt", 18, "repo-ahead · spik…"},
+		{"a-very-long-repository-name", "spike-wt", 20, "a-very-long-… · spi…"},
+		{"repo", "", 10, "repo"},
+		{"repo-ahead", "spike-wt", 7, "repo-a…"},
+	} {
+		name, tag := identityParts(test.name, test.tag, test.width)
+		if got := name + tag; got != test.want || lipgloss.Width(got) > test.width {
+			t.Fatalf("identityParts(%q, %q, %d) = %q, want %q", test.name, test.tag, test.width, got, test.want)
+		}
+	}
+}
+
+func TestWorktreeFooterHidesForceHint(t *testing.T) {
+	model := worktreeTestModel()
+	model, _ = keyModel(model, "tab")
+	for _, width := range []int{40, 80, 120, 200} {
+		if footer := model.footerPlain(width); strings.Contains(footer, "X") {
+			t.Fatalf("footer must not advertise X at %d: %q", width, footer)
+		}
 	}
 }

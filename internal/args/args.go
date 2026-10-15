@@ -23,6 +23,10 @@ Options:
   --non-interactive  Print a status report and exit without opening the TUI
   --help             Show this help message
   --version          Show package version
+
+Worktrees tab keys:
+  x                  Delete the selected worktree; confirms before discarding files
+  X                  Force delete the selected worktree without confirmation
 `
 
 type Options struct {

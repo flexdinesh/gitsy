@@ -23,6 +23,7 @@ func PlainReport(workspace discover.Workspace, results []inspect.Result) string 
 			Failed: result.Failed,
 			Stale:  result.Stale,
 			Sync:   result.Sync,
+			Reason: result.Reason,
 		}
 	}
 

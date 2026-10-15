@@ -182,3 +182,89 @@ func TestRepoSyncOverridesSquashAndAdvancesHead(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchReasonClassifiesErrors(t *testing.T) {
+	for _, test := range []struct {
+		stderr string
+		want   string
+	}{
+		{"git fetch timed out", "fetch timed out after 30s"},
+		{"fatal: Authentication failed for 'https://example.com/org/repo.git/'", "fetch failed: auth"},
+		{"git@example.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.", "fetch failed: auth"},
+		{"fatal: could not read Username for 'https://example.com': terminal prompts disabled", "fetch failed: auth"},
+		{"fatal: unable to access 'https://example.com/': The requested URL returned error: 403", "fetch failed: auth"},
+		{"remote: Repository not found.\nfatal: repository 'https://example.com/x.git/' not found", "fetch failed: repo not found"},
+		{"fatal: '/missing' does not appear to be a git repository\nfatal: Could not read from remote repository.", "fetch failed: repo not found"},
+		{"fatal: unable to access 'https://example.com/': Could not resolve host: example.com", "remote unreachable"},
+		{"ssh: connect to host example.com port 22: Connection timed out\nfatal: Could not read from remote repository.", "remote unreachable"},
+		{"ssh: connect to host example.com port 22: Connection refused", "remote unreachable"},
+		{"context canceled", "fetch canceled"},
+		{"", "fetch failed"},
+		{"error: something unexpected", "fetch failed"},
+	} {
+		t.Run(test.want+"/"+test.stderr, func(t *testing.T) {
+			if got := fetchReason(git.Result{Stderr: test.stderr, Status: 1}); got != test.want {
+				t.Fatalf("got %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestStatusReasonKeepsShortFirstLine(t *testing.T) {
+	for _, test := range []struct {
+		result git.Result
+		want   string
+	}{
+		{git.Result{Stderr: "git status timed out", Status: -1}, "status failed: timed out"},
+		{git.Result{Stderr: "fatal: not a git repository (or any of the parent directories): .git\nmore", Status: 128}, "status failed: not a git repository (or any of the parent dire…"},
+		{git.Result{Stderr: "\n  error: index file corrupt  \n", Status: 128}, "status failed: index file corrupt"},
+		{git.Result{Status: 129}, "status failed: git exited 129"},
+	} {
+		if got := statusReason(test.result); got != test.want {
+			t.Fatalf("got %q, want %q", got, test.want)
+		}
+	}
+}
+
+func TestRepoReasonsFollowPriority(t *testing.T) {
+	failure := func(stderr string) git.Result { return git.Result{Stderr: stderr, Status: 1} }
+	for _, test := range []struct {
+		name                   string
+		sync, fetch, statusErr bool
+		merge                  bool
+		want                   string
+	}{
+		{name: "clean"},
+		{name: "fetch", fetch: true, want: "remote unreachable"},
+		{name: "sync skipped keeps fetch reason", sync: true, fetch: true, want: "remote unreachable"},
+		{name: "status beats fetch", fetch: true, statusErr: true, want: "status failed: index file corrupt"},
+		{name: "sync failure", sync: true, merge: true, want: "sync failed: Not possible to fast-forward, aborting."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commands := gitCommands{
+				fetch: func(context.Context, string, time.Duration) git.Result {
+					if test.fetch {
+						return failure("fatal: Could not resolve host: example.com")
+					}
+					return git.Result{OK: true}
+				},
+				status: func(context.Context, string) git.Result {
+					if test.statusErr {
+						return failure("fatal: index file corrupt")
+					}
+					return git.Result{OK: true, Stdout: "## main...origin/main [behind 1]\n"}
+				},
+				merge: func(context.Context, string, string) git.Result {
+					return failure("fatal: Not possible to fast-forward, aborting.")
+				},
+				resolve: func(context.Context, string, string) git.Result {
+					return git.Result{OK: true, Stdout: "commit\n"}
+				},
+			}
+			got := repoContext(context.Background(), discover.Repo{Path: "/repo"}, false, test.sync, nil, commands)
+			if got.Reason != test.want {
+				t.Fatalf("reason = %q, want %q", got.Reason, test.want)
+			}
+		})
+	}
+}
