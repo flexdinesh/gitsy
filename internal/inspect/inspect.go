@@ -24,6 +24,7 @@ type Result struct {
 	Failed bool
 	Stale  bool
 	Sync   *SyncOutcome
+	Reason string // short explanation for failed, stale or skipped state
 }
 
 type gitCommands struct {
@@ -97,10 +98,12 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 		ctx = context.Background()
 	}
 	stale := false
+	reason := ""
 	if !noFetch || syncRepo {
-		fetchResult := commands.fetch(ctx, repo.Path, 30*time.Second)
+		fetchResult := commands.fetch(ctx, repo.Path, fetchTimeout)
 		if !fetchResult.OK {
 			stale = true
+			reason = fetchReason(fetchResult)
 			if warn != nil {
 				warn(fmt.Sprintf("Fetch failed for %s: %s", repo.DisplayName, gitError(fetchResult)))
 			}
@@ -122,6 +125,7 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 			Failed: true,
 			Stale:  stale,
 			Sync:   syncOutcome,
+			Reason: statusReason(statusResult),
 		}
 	}
 
@@ -131,6 +135,7 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 		Status: parsedStatus,
 		Stale:  stale,
 		Sync:   syncOutcome,
+		Reason: reason,
 	}
 	if syncRepo && stale {
 		return result
@@ -143,6 +148,7 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 				warn(fmt.Sprintf("Sync failed for %s: %s", repo.DisplayName, reason))
 			}
 			result.Sync = &SyncOutcome{Kind: "failed", Reason: reason}
+			result.Reason = "sync failed: " + shortMessage(reason)
 			return result
 		}
 		target := commands.resolve(ctx, repo.Path, "@{upstream}")
@@ -172,6 +178,7 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 			}
 			result.Failed = true
 			result.Sync = &SyncOutcome{Kind: "synced", Pulled: pulled}
+			result.Reason = statusReason(postStatus)
 			return result
 		}
 
@@ -180,6 +187,61 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 	}
 
 	return result
+}
+
+const fetchTimeout = 30 * time.Second
+
+// fetchReason classifies fetch stderr into a short, stable phrase.
+func fetchReason(result git.Result) string {
+	stderr := strings.ToLower(result.Stderr)
+	switch {
+	case strings.Contains(stderr, "timed out") && !strings.Contains(stderr, "connection timed out"):
+		return "fetch timed out after " + fetchTimeout.String()
+	case containsAny(stderr, "authentication failed", "permission denied", "could not read username", "could not read password", "terminal prompts disabled", "invalid username or password", "returned error: 401", "returned error: 403"):
+		return "fetch failed: auth"
+	case containsAny(stderr, "repository not found", "does not appear to be a git repository", "returned error: 404"):
+		return "fetch failed: repo not found"
+	case containsAny(stderr, "could not resolve host", "connection refused", "connection timed out", "network is unreachable", "no route to host", "failed to connect", "could not read from remote repository"):
+		return "remote unreachable"
+	case strings.Contains(stderr, "context canceled"):
+		return "fetch canceled"
+	}
+	return "fetch failed"
+}
+
+func statusReason(result git.Result) string {
+	if strings.Contains(result.Stderr, "timed out") {
+		return "status failed: timed out"
+	}
+	return "status failed: " + shortMessage(gitError(result))
+}
+
+// shortMessage keeps the first line of a Git error without its severity prefix.
+func shortMessage(message string) string {
+	for _, line := range strings.Split(message, "\n") {
+		line = strings.TrimSpace(line)
+		for _, prefix := range []string{"fatal:", "error:"} {
+			line = strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+		if line != "" {
+			if runes := []rune(line); len(runes) > maxReasonRunes {
+				line = string(runes[:maxReasonRunes-1]) + "…"
+			}
+			return line
+		}
+	}
+	return "unknown error"
+}
+
+const maxReasonRunes = 48
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func gitError(result git.Result) string {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/mattn/go-runewidth"
+	"github.com/muesli/termenv"
 )
 
 type inspector func(context.Context, discover.Repo, bool, bool, func(string)) inspect.Result
@@ -27,6 +29,7 @@ type rowEntry struct {
 	number     string // right-aligned digits only; marker is separate
 	marker     bool   // selected repo's first row shows ›
 	repo       string
+	tag        string // linked worktree basename shown beside the repository
 	worktree   string
 	status     string
 	compact    string
@@ -92,6 +95,7 @@ type repoDoneMsg struct {
 func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, workspace discover.Workspace, noFetch bool, syncRepos bool, warn func(string)) error {
 	model := newModel(ctx, cancel, workspace.Repos, noFetch, syncRepos, warn, inspect.NewSession().RepoContext)
 	model.groups = workspace.Groups
+	detectBackground(output)
 	program := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
@@ -113,8 +117,9 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 	results := make([]ui.RepoResult, len(repos))
 	for index, repo := range repos {
 		results[index] = ui.RepoResult{
-			Repo:    repo,
-			Loading: true,
+			Repo:     repo,
+			Loading:  true,
+			Fetching: !noFetch || syncRepos,
 		}
 	}
 
@@ -153,6 +158,9 @@ func (model Model) Init() tea.Cmd {
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.KeyMsg:
+		if msg.Type == tea.KeyRunes && len(msg.Runes) > 1 {
+			return model.keyBurst(msg.Runes)
+		}
 		if isQuitKey(msg) {
 			if model.cancel != nil {
 				model.cancel()
@@ -197,6 +205,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				Failed: msg.result.Failed,
 				Stale:  msg.result.Stale,
 				Sync:   msg.result.Sync,
+				Reason: msg.result.Reason,
 			}
 		}
 		model.refresh()
@@ -208,7 +217,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.removed = map[string]bool{}
 			}
 			model.removed[msg.repo.Path] = true
-			model.notice = "Deleted worktree. Branch kept."
+			model.notice = "Deleted " + truncateCell(displayGroupPath(filepath.Base(msg.repo.Path), ""), maxRepoWidthCap) + ". Branch kept."
 		} else if msg.result.NeedsForce {
 			model.confirm = &msg.repo
 			model.notice = ""
@@ -252,7 +261,7 @@ func (model Model) View() string {
 	tableWidth := max(1, tableOuter-2-padX*2)
 	cols := model.columns(tableWidth)
 	entries := model.tableRows()
-	capacity := model.viewportHeight(height)
+	capacity := model.viewportHeight(width, height)
 	offset := clamp(model.offset, 0, maxViewportOffset(entries, capacity))
 
 	tableBox := tableStyle(tableOuter).Render(renderTableBody(entries, cols, offset, capacity, model.selected))
@@ -269,18 +278,21 @@ func (model Model) View() string {
 	if action := model.renderAction(width); action != "" {
 		sections = append(sections, action)
 	}
+	if model.detailHeight(width) > 0 {
+		sections = append(sections, headerBarStyle(width).Render(model.detailLine(max(1, width-spaceSM*2))))
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, append(sections, model.renderFooter(width))...)
 }
 
-func tableViewportHeight(height int) int {
-	// Header, summary and tabs (4), column heading and rule (2), footer (1).
-	return max(1, height-7)
+func tableViewportHeight(headerHeight, height int) int {
+	// Header (title, summary lines, tabs), column heading and rule (2), footer (1).
+	return max(1, height-headerHeight-3)
 }
 
 func (model Model) compactView(width, height int) string {
 	done, total := model.progress()
 	count := fmt.Sprintf("%d/%d", done, total)
-	lines := []string{padCell(truncateCell(model.title(), max(0, width-len(count)-spaceSM)), max(0, width-len(count))) + count}
+	lines := []string{padCell(compactSummary(model.summaryParts(), max(0, width-len(count)-spaceSM)), max(0, width-len(count))) + count}
 	if len(model.displayResults()) == 0 || model.browseEmpty {
 		message := model.emptyMessage()
 		if model.browseEmpty && len(model.visibleRows()) > 0 {
@@ -295,10 +307,7 @@ func (model Model) compactView(width, height int) string {
 			}
 			lines = append(lines, renderGroup(group, width, false))
 			if group.groupSize > 0 {
-				message = fmt.Sprintf("%d repos", group.groupSize)
-				if model.worktrees {
-					message = fmt.Sprintf("%d worktrees", group.groupSize)
-				}
+				message = ui.Count(group.groupSize, model.noun())
 			}
 		} else if groups := model.displayGroups(); len(groups) > 0 {
 			lines = append(lines, renderGroup(model.groupEntry(groups[0]), width, false))
@@ -317,10 +326,16 @@ func (model Model) compactView(width, height int) string {
 		name := result.Repo.DisplayName
 		if model.worktrees {
 			name = worktreeIdentity(result.Repo, max(1, width-2))
+		} else if result.Repo.Worktree != nil {
+			repoName, tag := identityParts(name, worktreeName(result.Repo), max(1, width-2))
+			name = repoName + tag
 		}
 		lines = append(lines, iconSelected+" "+name)
-		for _, row := range ui.RowsForRepo(result) {
+		for index, row := range ui.RowsForRepo(result) {
 			lines = append(lines, strings.TrimSpace(row.Text))
+			if index == 0 && result.Reason != "" {
+				lines = append(lines, result.Reason)
+			}
 		}
 	}
 	if height > 1 {
@@ -330,6 +345,10 @@ func (model Model) compactView(width, height int) string {
 			lines = append(lines[:1], append([]string{model.tabPlain()}, lines[1:]...)...)
 		}
 		lines = lines[:min(len(lines), height-1)]
+		// Pin the footer to the last line, matching the regular view.
+		for len(lines) < height-1 {
+			lines = append(lines, "")
+		}
 		lines = append(lines, model.footerPlain(width))
 	} else {
 		lines = lines[:1]
@@ -340,12 +359,56 @@ func (model Model) compactView(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// wrapPlain wraps prose at spaces, hard-breaking only words wider than width.
 func wrapPlain(value string, width int) []string {
-	return strings.Split(runewidth.Wrap(value, max(1, width)), "\n")
+	return fillLines(strings.Fields(value), " ", width, false)
+}
+
+// wrapPath wraps a filesystem path after separators where possible.
+func wrapPath(value string, width int) []string {
+	return fillLines(strings.SplitAfter(value, "/"), "", width, true)
+}
+
+// fillLines packs tokens greedily. A token wider than width hard-breaks on a
+// fresh line, or fills the current line first when packLong is set.
+func fillLines(tokens []string, separator string, width int, packLong bool) []string {
+	width = max(1, width)
+	lines := []string{""}
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		last := lines[len(lines)-1]
+		joined := token
+		if last != "" {
+			joined = last + separator + token
+		}
+		if last != "" && runewidth.StringWidth(joined) > width && (!packLong || runewidth.StringWidth(token) <= width) {
+			lines = append(lines, "")
+			joined = token
+		}
+		for runewidth.StringWidth(joined) > width {
+			head := runewidth.Truncate(joined, width, "")
+			if head == "" {
+				head = string([]rune(joined)[:1])
+			}
+			if head == joined {
+				break
+			}
+			lines[len(lines)-1] = head
+			lines = append(lines, "")
+			joined = joined[len(head):]
+		}
+		lines[len(lines)-1] = joined
+	}
+	return lines
 }
 
 func wrapInfo(value string, width int, color lipgloss.TerminalColor) []string {
-	lines := wrapPlain(value, width)
+	return styleLines(wrapPlain(value, width), color)
+}
+
+func styleLines(lines []string, color lipgloss.TerminalColor) []string {
 	for index := range lines {
 		lines[index] = lipgloss.NewStyle().Foreground(color).Render(lines[index])
 	}
@@ -386,7 +449,7 @@ func (model Model) progress() (done, total int) {
 func (model Model) groupEntry(group discover.Group) rowEntry {
 	entry := rowEntry{group: displayGroupPath(group.Path, model.home), groupSize: len(group.RepoIndexes), repoIndex: -1}
 	if model.worktrees {
-		entry.groupLabel = "worktrees"
+		entry.groupLabel = "worktree"
 	}
 	for _, index := range group.RepoIndexes {
 		if !model.results[index].Loading {
@@ -408,6 +471,29 @@ func (model *Model) nextInspectCommands() tea.Cmd {
 		commands = append(commands, model.inspectRepo(index, model.results[index].Repo))
 	}
 	return tea.Batch(commands...)
+}
+
+// keyBurst replays runes coalesced by fast key repeat or paste in order.
+// Deletion and confirmation keys never act from a burst.
+func (model Model) keyBurst(runes []rune) (tea.Model, tea.Cmd) {
+	if strings.ContainsAny(string(runes), "qQ") {
+		if model.cancel != nil {
+			model.cancel()
+		}
+		return model, tea.Quit
+	}
+	commands := []tea.Cmd{}
+	for _, key := range runes {
+		if strings.ContainsRune("xXyY", key) {
+			continue
+		}
+		updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+		if next, ok := updated.(Model); ok {
+			model = next
+		}
+		commands = append(commands, command)
+	}
+	return model, tea.Batch(commands...)
 }
 
 func isQuitKey(message tea.KeyMsg) bool {
@@ -498,7 +584,7 @@ func (model *Model) refresh() {
 		return
 	}
 	width := max(model.width, minWidth)
-	model.updateTableWithSize(width, model.viewportHeight(model.height))
+	model.updateTableWithSize(width, model.viewportHeight(width, model.height))
 }
 
 func (model *Model) updateTableWithSize(width int, height int) {
@@ -591,6 +677,12 @@ func (model Model) tableRows() []rowEntry {
 		}
 	}
 	entries := buildEntries(results, model.selected)
+	for index := range entries {
+		entry := &entries[index]
+		if !model.worktrees && entry.number != "" && results[entry.repoIndex].Repo.Worktree != nil {
+			entry.tag = worktreeName(results[entry.repoIndex].Repo)
+		}
+	}
 	if model.worktrees {
 		for index := range entries {
 			entry := &entries[index]
@@ -770,7 +862,7 @@ func (model Model) renderHeader(width int) string {
 		}
 		left += fmt.Sprintf(" · %d %s", len(model.groups), directoryLabel)
 		if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
-			left = fmt.Sprintf("gitsy · %d dirs", len(model.groups))
+			left = "gitsy · " + ui.Count(len(model.groups), "dir")
 		}
 	}
 	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
@@ -787,42 +879,30 @@ func (model Model) renderHeader(width int) string {
 	}
 	gap := strings.Repeat(" ", content-runewidth.StringWidth(left)-runewidth.StringWidth(right))
 	title := headerTitleStyle().Foreground(brand).Render(left) + gap + headerMetaStyle().Render(right)
-	summary := strings.TrimPrefix(model.title(), "gitsy • ")
-	parts := strings.Split(summary, " • ")
-	// Failures retain priority even when a very narrow summary must omit fields.
-	for index, part := range parts {
-		if strings.Contains(part, "failed") && index > 1 {
-			copy(parts[2:index+1], parts[1:index])
-			parts[1] = part
-			break
-		}
-	}
+	reserved := model.summaryHeight(width)
 	lines := []string{""}
 	used := 0
-	for _, part := range parts {
+	for _, part := range model.summaryParts() {
 		needed := runewidth.StringWidth(part)
 		if used > 0 && used+3+needed > content {
-			if len(lines) == 2 {
+			if len(lines) == reserved {
 				break
 			}
 			lines = append(lines, "")
 			used = 0
 		}
-		color := textLo
-		if strings.Contains(part, "changed") || strings.Contains(part, "behind") || strings.Contains(part, "stale") {
-			color = warning
-		}
-		if strings.Contains(part, "failed") {
-			color = danger
+		style := headerMetaStyle()
+		if _, label, ok := strings.Cut(part, " "); ok && slices.Contains(ui.SummaryOrder, label) {
+			style = toneStyle(ui.SummaryTone(label), false, false)
 		}
 		if used > 0 {
 			lines[len(lines)-1] += headerMetaStyle().Render(" · ")
 			used += 3
 		}
-		lines[len(lines)-1] += lipgloss.NewStyle().Foreground(color).Render(truncateCell(part, content-used))
+		lines[len(lines)-1] += style.Render(truncateCell(part, content-used))
 		used += needed
 	}
-	if len(lines) == 1 {
+	for len(lines) < reserved {
 		lines = append(lines, "")
 	}
 	return headerBarStyle(width).Render(title + "\n" + strings.Join(lines, "\n") + "\n" + model.renderTabs(content))
@@ -831,13 +911,69 @@ func (model Model) renderHeader(width int) string {
 func (model Model) title() string {
 	results := model.visibleResults()
 	title := ui.Title(results, len(results))
+	noun := model.noun()
 	if len(model.displayResults()) > len(results) {
-		title = strings.Replace(title, fmt.Sprintf("%d repos", len(results)), fmt.Sprintf("%d unique repos", len(results)), 1)
+		noun = "unique " + noun
 	}
+	return strings.Replace(title, ui.Count(len(results), "repo"), ui.Count(len(results), noun), 1)
+}
+
+func (model Model) noun() string {
 	if model.worktrees {
-		title = strings.Replace(title, "repos", "worktrees", 1)
+		return "worktree"
 	}
-	return title
+	return "repo"
+}
+
+// summaryParts lists the total, then counts in ui.SummaryOrder priority.
+func (model Model) summaryParts() []string {
+	return strings.Split(strings.TrimPrefix(model.title(), "gitsy · "), " · ")
+}
+
+// compactSummary drops whole segments until the summary fits: the title
+// first, then counts from least to most urgent. The total stays.
+func compactSummary(parts []string, width int) string {
+	kept := append([]string{"gitsy"}, parts...)
+	drops := []string{"gitsy"}
+	for index := len(ui.SummaryOrder) - 1; index >= 0; index-- {
+		drops = append(drops, " "+ui.SummaryOrder[index])
+	}
+	for _, drop := range drops {
+		if runewidth.StringWidth(strings.Join(kept, " · ")) <= width {
+			break
+		}
+		kept = slices.DeleteFunc(kept, func(part string) bool { return strings.HasSuffix(part, drop) })
+	}
+	return truncateCell(strings.Join(kept, " · "), width)
+}
+
+// summaryHeight reserves a second summary line only when the widest summary
+// this workspace could produce would wrap, so the layout never jumps as
+// counts change.
+func (model Model) summaryHeight(width int) int {
+	count := len(model.results)
+	noun, appearances := "worktree", 0
+	for _, group := range model.groups {
+		appearances += len(group.RepoIndexes)
+	}
+	if appearances > count {
+		noun = "unique " + noun
+	}
+	widest := []string{ui.Count(count, noun)}
+	for _, label := range ui.SummaryOrder {
+		if model.sync || label != "skipped" && label != "synced" {
+			widest = append(widest, fmt.Sprintf("%d %s", count, label))
+		}
+	}
+	if runewidth.StringWidth(strings.Join(widest, " · ")) <= max(1, width-spaceSM*2) {
+		return 1
+	}
+	return 2
+}
+
+// headerHeight counts the title, summary and tab lines.
+func (model Model) headerHeight(width int) int {
+	return model.summaryHeight(width) + 2
 }
 
 // headerRight is the header meta without the leading separator: the gap
@@ -883,12 +1019,9 @@ func (model Model) infoLines(width int) []string {
 		columnHeaderStyle().Render(truncateCell(label, width)),
 		dividerStyle().Render(strings.Repeat("─", max(1, width))),
 	}
-	if model.browseEmpty {
-		return append(lines, "", truncateCell(model.emptyMessage(), width))
-	}
-	if len(model.displayResults()) == 0 {
-		lines = append(lines, "")
-		return append(lines, wrapPlain(model.emptyMessage(), width)...)
+	// The ledger already explains empty groups.
+	if model.browseEmpty || len(model.displayResults()) == 0 {
+		return append(lines, "", headerMetaStyle().Render(truncateCell("Nothing selected.", width)))
 	}
 	result := model.selectedResult()
 	name := result.Repo.DisplayName
@@ -896,11 +1029,11 @@ func (model Model) infoLines(width int) []string {
 		name = displayGroupPath(filepath.Base(result.Repo.Path), "")
 	}
 	lines = append(lines, "", headerTitleStyle().Render(truncateCell(name, width)))
-	lines = append(lines, wrapInfo(result.Repo.Path, width, textLo)...)
+	lines = append(lines, styleLines(wrapPath(displayGroupPath(result.Repo.Path, model.home), width), textLo)...)
 	if worktree := result.Repo.Worktree; model.worktrees && worktree != nil {
 		lines = append(lines, "", infoSectionStyle().Render("Repository"))
 		lines = append(lines, wrapInfo(result.Repo.DisplayName, width, textHi)...)
-		lines = append(lines, wrapInfo(displayGroupPath(worktree.MainPath, model.home), width, textLo)...)
+		lines = append(lines, styleLines(wrapPath(displayGroupPath(worktree.MainPath, model.home), width), textLo)...)
 		if worktree.Locked {
 			lines = append(lines, wrapInfo("Locked: "+worktree.LockReason, width, warning)...)
 		}
@@ -918,15 +1051,70 @@ func (model Model) infoLines(width int) []string {
 	}
 	lines = append(lines, "", infoSectionStyle().Render("Status"))
 	rows := ui.RowsForRepo(result)
+	summary := ""
 	if len(rows) > 0 {
-		for _, line := range wrapPlain(rows[0].Text, width) {
+		summary = rows[0].Text
+		for _, line := range wrapPlain(summary, width) {
 			lines = append(lines, toneStyle(rows[0].Tone, false, false).Render(line))
 		}
 	}
-	if result.Sync != nil && result.Sync.Kind == "skipped" {
+	if result.Reason != "" {
+		for _, line := range wrapPlain(result.Reason, width) {
+			lines = append(lines, toneStyle(ui.ReasonTone(result), false, false).Render(line))
+		}
+	}
+	if result.Sync != nil && result.Sync.Kind == "skipped" && !strings.Contains(summary, "sync skipped") {
 		lines = append(lines, wrapInfo("Sync skipped: "+result.Sync.Reason, width, warning)...)
 	}
 	return lines
+}
+
+// detailHeight reserves one line above the footer for selected context
+// whenever the rail is hidden, so selection changes never shift the layout.
+func (model Model) detailHeight(width int) int {
+	if _, _, shown := layoutWidths(width); shown || model.confirm != nil || model.deleting != "" {
+		return 0
+	}
+	return 1
+}
+
+// detailLine shows the selected path, any short reason, then the upstream.
+// The upstream drops first, then the path shortens from the left.
+func (model Model) detailLine(width int) string {
+	if len(model.displayResults()) == 0 || model.browseEmpty {
+		return ""
+	}
+	result := model.selectedResult()
+	path := displayGroupPath(result.Repo.Path, model.home)
+	upstream := ""
+	if branch := result.Status.Branch; branch != nil {
+		upstream = displayGroupPath(branch.Upstream, "")
+	}
+	reason := result.Reason
+	tail := func() string {
+		return strings.Join(slices.DeleteFunc([]string{reason, upstream}, func(part string) bool { return part == "" }), " · ")
+	}
+	if upstream != "" && runewidth.StringWidth(path)+3+runewidth.StringWidth(tail()) > width {
+		upstream = ""
+	}
+	room := width
+	if tail() != "" {
+		room -= 3 + runewidth.StringWidth(tail())
+	}
+	if room < 8 && reason != "" {
+		return toneStyle(ui.ReasonTone(result), false, false).Render(truncateCell(reason, width))
+	}
+	if fullWidth := runewidth.StringWidth(path); fullWidth > max(1, room) {
+		path = runewidth.TruncateLeft(path, fullWidth-max(1, room)+1, "…")
+	}
+	line := headerMetaStyle().Render(path)
+	if reason != "" {
+		line += headerMetaStyle().Render(" · ") + toneStyle(ui.ReasonTone(result), false, false).Render(reason)
+	}
+	if upstream != "" {
+		line += headerMetaStyle().Render(" · " + upstream)
+	}
+	return line
 }
 
 // Context collapses when it would crowd repository state.
@@ -1029,34 +1217,64 @@ func renderRow(entry rowEntry, cols tableColumns, selected int) string {
 		marker = iconSelected
 	}
 	number := padCell(truncateCell(marker+" "+entry.number, numberWidth), numberWidth)
-	repo := padCell(truncateCell(entry.repo, repoWidth), repoWidth)
+	name, tag := identityParts(entry.repo, entry.tag, repoWidth)
+	tag = padCell(name+tag, repoWidth)[len(name):]
+	after := ""
 	if cols.worktree > 0 {
-		repo += gap + padCell(truncateCell(entry.worktree, cols.worktree), cols.worktree)
+		after = gap + padCell(truncateCell(entry.worktree, cols.worktree), cols.worktree)
+	}
+	selectedRow := entry.repoIndex == selected
+	endCap := ""
+	// Without SGR support, a trailing cap keeps the selected strip visible.
+	if selectedRow && lipgloss.ColorProfile() == termenv.Ascii && statusWidth > runewidth.StringWidth(selectionCap) {
+		endCap = selectionCap
+		statusWidth -= runewidth.StringWidth(selectionCap)
 	}
 	statusText := entry.status
 	if entry.number != "" && entry.compact != "" && runewidth.StringWidth(statusText) > statusWidth {
 		statusText = entry.compact
 	}
-	status := padCell(truncateCell(statusText, statusWidth), statusWidth)
-	if entry.repoIndex == selected && entry.repoIndex >= 0 {
+	status := padCell(truncateCell(statusText, statusWidth), statusWidth) + endCap
+	if selectedRow {
 		mark := selectedNumStyle().Background(selection).Render(" ")
 		if entry.marker {
 			mark = selectedMarkerStyle().Background(selection).Render(iconSelected)
 		}
 		return mark +
-			selectedNumStyle().Background(selection).Render(padCell(truncateCell(" "+entry.number, numberWidth-1), numberWidth-1)+gap+repo+gap) +
+			selectedNumStyle().Background(selection).Render(padCell(truncateCell(" "+entry.number, numberWidth-1), numberWidth-1)+gap+name) +
+			headerMetaStyle().Background(selection).Render(tag) +
+			selectedNumStyle().Background(selection).Render(after+gap) +
 			toneStyle(entry.tone, entry.bold, false).Background(selection).Render(status)
 	}
-	return headerMetaStyle().Render(number) + gap + lipgloss.NewStyle().Foreground(textHi).Render(repo) + gap + toneStyle(entry.tone, false, entry.dim).Render(status)
+	identity := lipgloss.NewStyle().Foreground(textHi)
+	return headerMetaStyle().Render(number) + gap + identity.Render(name) + headerMetaStyle().Render(tag) + identity.Render(after) + gap + toneStyle(entry.tone, false, entry.dim).Render(status)
+}
+
+// selectionCap ends selected rows when the terminal has no styling.
+const selectionCap = " ‹"
+
+// identityParts keeps the repository name ahead of a subdued worktree tag,
+// truncating each independently while reserving four cells for the tag.
+func identityParts(name, tag string, width int) (string, string) {
+	if tag == "" || width < 8 {
+		return truncateCell(name, width), ""
+	}
+	tagMin := min(runewidth.StringWidth(tag), 4)
+	name = truncateCell(name, min(runewidth.StringWidth(name), width-3-tagMin))
+	return name, " · " + truncateCell(tag, width-runewidth.StringWidth(name)-3)
+}
+
+func worktreeName(repo discover.Repo) string {
+	return displayGroupPath(filepath.Base(repo.Path), "")
 }
 
 func renderGroup(entry rowEntry, width int, styled bool) string {
-	label := "repos"
-	if entry.groupSize == 1 {
-		label = "repo"
-	}
+	label := "repo"
 	if entry.groupLabel != "" {
 		label = entry.groupLabel
+	}
+	if entry.groupSize != 1 {
+		label += "s"
 	}
 	count := fmt.Sprintf("%d/%d", entry.groupDone, entry.groupSize)
 	if len(count)+1+len(label)+columnGap+1 <= width {
@@ -1091,7 +1309,11 @@ func columnWidths(width int, results []ui.RepoResult) (int, int, int) {
 	contentWidth := max(16, width-numberWidth-columnGap*2)
 	longestRepoName := runewidth.StringWidth("REPO")
 	for _, result := range results {
-		longestRepoName = max(longestRepoName, runewidth.StringWidth(result.Repo.DisplayName))
+		name := result.Repo.DisplayName
+		if result.Repo.Worktree != nil {
+			name += " · " + worktreeName(result.Repo)
+		}
+		longestRepoName = max(longestRepoName, runewidth.StringWidth(name))
 	}
 
 	maxRepoWidth := min(maxRepoWidthCap, max(8, contentWidth*35/100))
@@ -1128,8 +1350,8 @@ func (model Model) footerPlain(content int) string {
 		"tab views · q",
 		"q quit",
 	}
-	if model.worktrees {
-		hints = []string{"↑/↓ j/k move · tab views · f files · x delete · X force · q quit", "↑↓ · tab views · x delete · X force · q quit", "tab views · x delete · q", "tab · x · q", "q"}
+	if model.worktrees && position != "" {
+		hints = []string{"↑/↓ j/k move · tab views · f files · x delete · q quit", "↑↓ · tab views · x delete · q quit", "tab views · x delete · q", "tab · x · q", "q"}
 	}
 	hint := hints[len(hints)-1]
 	for _, option := range hints {
@@ -1145,7 +1367,7 @@ func (model Model) footerPlain(content int) string {
 		return position + strings.Repeat(" ", content-runewidth.StringWidth(position)-runewidth.StringWidth(hint)) + hint
 	}
 	if runewidth.StringWidth(position) <= content {
-		return truncateCell(position+" • "+hint, content)
+		return truncateCell(position+" · "+hint, content)
 	}
 	return truncateCell(hint, content)
 }

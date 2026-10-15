@@ -204,7 +204,7 @@ func DiscoverGroupedContext(ctx context.Context, options Options) (Workspace, er
 			if err := ctx.Err(); err != nil {
 				return Workspace{}, err
 			}
-			verified, ok := verifyRepo(ctx, candidate, SourceScan, warn)
+			verified, ok := verifyRepo(ctx, candidate, SourceScan, DisplayNameForPath(candidate), warn)
 			if ok {
 				members[groupIndex][verified.RealPath] = true
 				if _, exists := reposByRealPath[verified.RealPath]; !exists {
@@ -238,7 +238,14 @@ func DiscoverGroupedContext(ctx context.Context, options Options) (Workspace, er
 		}
 
 		for worktreeIndex, worktree := range git.ParseWorktrees(result.Stdout) {
-			verified, ok := verifyRepo(ctx, worktree.Path, SourceWorktree, warn)
+			fallback := DisplayNameForPath(worktree.Path)
+			if worktreeIndex > 0 {
+				// Linked worktrees without a remote share the main checkout's name.
+				if name := strings.TrimSuffix(DisplayNameForPath(worktree.MainPath), ".git"); name != "" {
+					fallback = name
+				}
+			}
+			verified, ok := verifyRepo(ctx, worktree.Path, SourceWorktree, fallback, warn)
 			if ok {
 				for index, group := range scannedMembers {
 					if group[repo.RealPath] {
@@ -246,6 +253,9 @@ func DiscoverGroupedContext(ctx context.Context, options Options) (Workspace, er
 					}
 				}
 				if existing, exists := reposByRealPath[verified.RealPath]; exists {
+					if worktreeIndex > 0 {
+						existing.DisplayName = verified.DisplayName
+					}
 					verified = existing
 				}
 				if worktreeIndex > 0 {
@@ -263,11 +273,15 @@ func DiscoverGroupedContext(ctx context.Context, options Options) (Workspace, er
 	if err := ctx.Err(); err != nil {
 		return Workspace{}, err
 	}
+	// Linked worktrees follow the main checkout that shares their name.
 	sort.Slice(repos, func(i, j int) bool {
-		if repos[i].DisplayName == repos[j].DisplayName {
-			return repos[i].Path < repos[j].Path
+		if repos[i].DisplayName != repos[j].DisplayName {
+			return repos[i].DisplayName < repos[j].DisplayName
 		}
-		return repos[i].DisplayName < repos[j].DisplayName
+		if linkedI, linkedJ := repos[i].Worktree != nil, repos[j].Worktree != nil; linkedI != linkedJ {
+			return linkedJ
+		}
+		return repos[i].Path < repos[j].Path
 	})
 	groups := make([]Group, len(roots))
 	for index, root := range roots {
@@ -295,6 +309,10 @@ func displayPath(path string) string {
 }
 
 func nameFromRemote(remote string) string {
+	// Remote helpers such as ext:: carry commands, not repository paths.
+	if strings.Contains(remote, "::") {
+		return ""
+	}
 	if strings.Contains(remote, "://") {
 		parsed, err := url.Parse(remote)
 		if err != nil {
@@ -313,7 +331,8 @@ func nameFromRemote(remote string) string {
 	return displayPath(name)
 }
 
-func verifyRepo(ctx context.Context, repoPath string, source RepoSource, warn func(message string)) (Repo, bool) {
+// verifyRepo names the repo from its origin remote, or fallbackName without one.
+func verifyRepo(ctx context.Context, repoPath string, source RepoSource, fallbackName string, warn func(message string)) (Repo, bool) {
 	stats, err := os.Stat(repoPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -352,7 +371,7 @@ func verifyRepo(ctx context.Context, repoPath string, source RepoSource, warn fu
 		return Repo{}, false
 	}
 
-	displayName := DisplayNameForPath(repoPath)
+	displayName := fallbackName
 	if origin := git.OriginURLContext(ctx, repoPath); origin.OK {
 		if name := nameFromRemote(strings.TrimSuffix(origin.Stdout, "\x00")); name != "" {
 			displayName = name

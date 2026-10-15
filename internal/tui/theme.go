@@ -28,20 +28,31 @@ const (
 	mouseWheelRows  = 3
 )
 
-// Palette uses adaptive colors so the UI works on dark and light terminals.
+// Palette pins truecolor, ANSI256 and ANSI16 values for light and dark
+// backgrounds instead of relying on nearest-color degradation, which merges
+// tokens and drops contrast. Fields are hex, 256-color index, 16-color index;
+// an empty 16-color value keeps the terminal default.
 var (
-	borderSubtle = lipgloss.AdaptiveColor{Light: "#C4CDD6", Dark: "#354555"}
-	textHi       = lipgloss.AdaptiveColor{Light: "#243446", Dark: "#D8E2ED"}
-	textMed      = lipgloss.AdaptiveColor{Light: "#465A6E", Dark: "#ADBDCD"}
-	textLo       = lipgloss.AdaptiveColor{Light: "#566B7F", Dark: "#8CA2B8"}
-	brand        = lipgloss.AdaptiveColor{Light: "#176C61", Dark: "#63C5B5"}
-	success      = lipgloss.AdaptiveColor{Light: "#306B49", Dark: "#9AC79D"}
-	warning      = lipgloss.AdaptiveColor{Light: "#895B10", Dark: "#E5B567"}
-	danger       = lipgloss.AdaptiveColor{Light: "#AC3439", Dark: "#EE9298"}
-	info         = lipgloss.AdaptiveColor{Light: "#325F91", Dark: "#8BB4DF"}
-	violet       = lipgloss.AdaptiveColor{Light: "#785297", Dark: "#BDA6DB"}
-	selection    = lipgloss.AdaptiveColor{Light: "#E2EFEB", Dark: "#203B3B"}
+	borderSubtle = adaptive([3]string{"#C4CDD6", "250", "8"}, [3]string{"#354555", "238", "8"})
+	textHi       = adaptive([3]string{"#243446", "236", ""}, [3]string{"#D8E2ED", "254", ""})
+	textMed      = adaptive([3]string{"#465A6E", "240", ""}, [3]string{"#ADBDCD", "250", "7"})
+	textLo       = adaptive([3]string{"#566B7F", "242", "8"}, [3]string{"#8CA2B8", "247", "8"})
+	brand        = adaptive([3]string{"#176C61", "23", "6"}, [3]string{"#63C5B5", "73", "14"})
+	success      = adaptive([3]string{"#306B49", "22", "2"}, [3]string{"#9AC79D", "108", "10"})
+	warning      = adaptive([3]string{"#895B10", "94", "3"}, [3]string{"#E5B567", "179", "11"})
+	danger       = adaptive([3]string{"#AC3439", "124", "1"}, [3]string{"#EE9298", "210", "9"})
+	info         = adaptive([3]string{"#325F91", "25", "4"}, [3]string{"#8BB4DF", "110", "12"})
+	violet       = adaptive([3]string{"#785297", "96", "5"}, [3]string{"#BDA6DB", "140", "13"})
+	// ANSI16 selection relies on the marker and bold text, never a background.
+	selection = adaptive([3]string{"#E2EFEB", "255", ""}, [3]string{"#203B3B", "236", ""})
 )
+
+func adaptive(light, dark [3]string) lipgloss.CompleteAdaptiveColor {
+	return lipgloss.CompleteAdaptiveColor{
+		Light: lipgloss.CompleteColor{TrueColor: light[0], ANSI256: light[1], ANSI: light[2]},
+		Dark:  lipgloss.CompleteColor{TrueColor: dark[0], ANSI256: dark[1], ANSI: dark[2]},
+	}
+}
 
 const iconSelected = "›"
 
@@ -134,6 +145,8 @@ func toneStyle(tone string, bold bool, dim bool) lipgloss.Style {
 		return style.Foreground(brand)
 	case "gray":
 		return style.Foreground(textLo)
+	case "muted":
+		return style.Foreground(textMed)
 	case "white":
 		return style.Foreground(textHi)
 	default:

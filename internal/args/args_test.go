@@ -2,6 +2,7 @@ package args
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,14 @@ func TestParseRejectsUnknownArgs(t *testing.T) {
 	for _, argv := range [][]string{{"--raw"}, {"--all"}} {
 		if Parse(argv, "/cwd").OK {
 			t.Fatalf("expected Parse(%v) to fail", argv)
+		}
+	}
+}
+
+func TestUsageDocumentsWorktreeKeys(t *testing.T) {
+	for _, want := range []string{"  x  ", "  X  ", "Force delete the selected worktree without confirmation"} {
+		if !strings.Contains(Usage, want) {
+			t.Fatalf("usage must document %q", want)
 		}
 	}
 }

@@ -121,7 +121,7 @@ func TestPlainCommandSyncAlwaysFetchesAndReportsFinalStatus(t *testing.T) {
 	plainGit(t, root, "clone", "-q", origin, clone)
 	plainGit(t, origin, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "update")
 	stdout, stderr, code := plainCommand(t, "--non-interactive", "--sync", "--no-fetch", "--dir", root)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "synced ↓1") || strings.Contains(stdout, "1 behind") {
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "synced 1 commit") || strings.Contains(stdout, "1 behind") {
 		t.Fatalf("sync must fetch and show final state: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	if git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout != git.ResolveCommitContext(context.Background(), origin, "HEAD").Stdout {

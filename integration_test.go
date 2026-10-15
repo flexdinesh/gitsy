@@ -128,7 +128,8 @@ func TestDiscoversMultipleDirectoriesAndExternalWorktrees(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []string{"linked", "project", "project"}
+			// The worktree has no remote, so it takes the main checkout's name.
+			want := []string{"project", "project", "project"}
 			wantPaths := []string{worktree, repo, filepath.Join(two, "project")}
 			if test.deep {
 				want = append(want, "deep")
@@ -154,8 +155,9 @@ func TestDiscoversMultipleDirectoriesAndExternalWorktrees(t *testing.T) {
 			}
 			for index := 1; index < len(repos); index++ {
 				previous, current := repos[index-1], repos[index]
-				if previous.DisplayName == current.DisplayName && previous.Path > current.Path {
-					t.Fatalf("duplicate names must be ordered by path: %v", repos)
+				sameKind := (previous.Worktree == nil) == (current.Worktree == nil)
+				if previous.DisplayName == current.DisplayName && (previous.Worktree != nil && current.Worktree == nil || sameKind && previous.Path > current.Path) {
+					t.Fatalf("duplicate names must list main checkouts first, then order by path: %v", repos)
 				}
 			}
 		})
@@ -254,7 +256,7 @@ func TestDiscoverNamesReposFromOrigin(t *testing.T) {
 
 func TestDiscoverFallsBackForUnusableOrigin(t *testing.T) {
 	requireGit(t)
-	for _, origin := range []string{"", "https://example.com", "https://example.com/%zz"} {
+	for _, origin := range []string{"", "https://example.com", "https://example.com/%zz", "ext::sleep 120"} {
 		t.Run(origin, func(t *testing.T) {
 			dir := t.TempDir()
 			repo := filepath.Join(dir, "local-repo")
@@ -322,9 +324,12 @@ func TestDiscoversLinkedWorktreesFromDiscoveredRepo(t *testing.T) {
 	names := []string{}
 	for _, repo := range repos {
 		names = append(names, repo.DisplayName)
+		if repo.Path == worktree && repo.Worktree == nil {
+			t.Fatalf("linked worktree identity lost: %+v", repo)
+		}
 	}
-	if !reflect.DeepEqual(names, []string{"linked-worktree", "repo"}) {
-		t.Fatalf("expected linked-worktree and repo, got %#v", names)
+	if !reflect.DeepEqual(names, []string{"repo", "repo"}) {
+		t.Fatalf("linked worktree without a remote must use the main checkout name, got %#v", names)
 	}
 }
 

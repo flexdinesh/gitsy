@@ -148,7 +148,7 @@ func (model Model) actionLines() []string {
 		path := displayGroupPath(model.confirm.Path, model.home)
 		lines := model.confirmationLines(content)
 		if !model.canConfirm() {
-			return []string{"Enlarge terminal to review path.", runewidth.TruncateLeft(path, max(0, runewidth.StringWidth(path)-content), "…")}
+			return append(wrapPlain("Enlarge terminal to review path.", content), runewidth.TruncateLeft(path, max(0, runewidth.StringWidth(path)-content), "…"))
 		}
 		return lines
 	}
@@ -164,7 +164,7 @@ func (model Model) actionLines() []string {
 
 func (model Model) confirmationLines(content int) []string {
 	prompt := "Force delete worktree? Discards changed, untracked, ignored, and submodule files. Branch kept."
-	return append(wrapPlain(prompt, content), wrapPlain(displayGroupPath(model.confirm.Path, model.home), content)...)
+	return append(wrapPlain(prompt, content), wrapPath(displayGroupPath(model.confirm.Path, model.home), content)...)
 }
 
 func (model Model) canConfirm() bool {
@@ -184,8 +184,8 @@ func (model Model) canConfirm() bool {
 
 func (model Model) actionHeight() int { return len(model.actionLines()) }
 
-func (model Model) viewportHeight(height int) int {
-	return max(1, tableViewportHeight(height)-model.actionHeight())
+func (model Model) viewportHeight(width, height int) int {
+	return max(1, tableViewportHeight(model.headerHeight(width), height)-model.actionHeight()-model.detailHeight(width))
 }
 
 func (model Model) renderAction(width int) string {

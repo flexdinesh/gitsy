@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -286,8 +287,8 @@ func TestViewSeparatesChromeFromTablePanel(t *testing.T) {
 	view := updated.(Model).View()
 	lines := strings.Split(view, "\n")
 
-	if !strings.Contains(lines[0], "gitsy") || !strings.Contains(lines[1], "2 repos") || strings.TrimSpace(lines[2]) != "" {
-		t.Fatalf("expected title, summary, then breathing room:\n%s", view)
+	if !strings.Contains(lines[0], "gitsy") || !strings.Contains(lines[1], "2 repos") || !strings.Contains(lines[2], "[Repositories]") {
+		t.Fatalf("expected title, one-line summary, then tabs:\n%s", view)
 	}
 	if !strings.Contains(lines[len(lines)-1], "q quit") {
 		t.Fatalf("expected footer anchored below ledger:\n%s", view)
@@ -475,16 +476,25 @@ func TestViewUsesOpenGutters(t *testing.T) {
 }
 
 func TestTableRowsShowSpinnerInLoadingStatusCell(t *testing.T) {
-	model := newTestModel([]discover.Repo{testRepo("repo")})
-	model.spin.Spinner.Frames = []string{"."}
+	for _, test := range []struct {
+		noFetch, sync bool
+		want          string
+	}{
+		{true, false, ". checking status…"},
+		{false, false, ". fetching…"},
+		{true, true, ". fetching…"},
+	} {
+		model := newModel(context.Background(), nil, testRepos("repo"), test.noFetch, test.sync, nil, nil)
+		model.spin.Spinner.Frames = []string{"."}
 
-	rows := model.tableRows()
+		rows := model.tableRows()
 
-	if len(rows) != 1 {
-		t.Fatalf("expected one table row, got %d", len(rows))
-	}
-	if rows[0].number != "1" || !rows[0].marker || rows[0].repo != "repo" || !strings.Contains(rows[0].status, "fetching status…") {
-		t.Fatalf("expected spinner in loading status cell, got %#v", rows[0])
+		if len(rows) != 1 {
+			t.Fatalf("expected one table row, got %d", len(rows))
+		}
+		if rows[0].number != "1" || !rows[0].marker || rows[0].repo != "repo" || rows[0].status != test.want || rows[0].compact != strings.TrimPrefix(test.want, ". ") {
+			t.Fatalf("expected mode-accurate loading status %q, got %#v", test.want, rows[0])
+		}
 	}
 }
 
@@ -594,7 +604,7 @@ func TestTableRowsShowChangeCountsInSummary(t *testing.T) {
 
 	rows := model.tableRows()
 
-	if !strings.Contains(rows[0].status, "main • 1 modified • 1 untracked") {
+	if !strings.Contains(rows[0].status, "main · 1 modified · 1 untracked") {
 		t.Fatalf("expected change counts in repo summary, got %#v", rows[0])
 	}
 }
@@ -643,4 +653,123 @@ func testRepos(names ...string) []discover.Repo {
 		repos = append(repos, testRepo(name))
 	}
 	return repos
+}
+
+func TestKeyBurstReplaysRunesInOrder(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		keys     string
+		selected int
+		quit     bool
+	}{
+		{"repeat down", "jjj", 3, false},
+		{"mixed", "jjjk", 2, false},
+		{"end then up", "Gk", 6, false},
+		{"quit wins", "jjq", 0, true},
+		{"upper quit", "Qj", 0, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := newTestModel(testRepos("a", "b", "c", "d", "e", "f", "g", "h"))
+			model.width, model.height = 80, 20
+			model.refresh()
+			updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.keys)})
+			if test.quit {
+				if command == nil {
+					t.Fatal("burst containing q must quit")
+				}
+				if _, ok := command().(tea.QuitMsg); !ok {
+					t.Fatal("burst containing q must return tea.Quit")
+				}
+				return
+			}
+			if got := updated.(Model).selected; got != test.selected {
+				t.Fatalf("burst %q selected %d, want %d", test.keys, got, test.selected)
+			}
+		})
+	}
+}
+
+func TestWrapPlainBreaksAtWords(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		wrap  func(string, int) []string
+		value string
+		width int
+		want  []string
+	}{
+		{"words", wrapPlain, "Enlarge terminal to review path.", 16, []string{"Enlarge terminal", "to review path."}},
+		{"collapses spaces", wrapPlain, "Delete  failed:\nlocked", 40, []string{"Delete failed: locked"}},
+		{"long word", wrapPlain, "a abcdefghij b", 4, []string{"a", "abcd", "efgh", "ij b"}},
+		{"wide runes", wrapPlain, "日本語 x", 4, []string{"日本", "語 x"}},
+		{"narrower than rune", wrapPlain, "日本", 1, []string{"日", "本"}},
+		{"empty", wrapPlain, "", 10, []string{""}},
+		{"path separators", wrapPath, "/home/dee/workspace/gitsy", 12, []string{"/home/dee/", "workspace/", "gitsy"}},
+		{"path with spaces", wrapPath, "~/my repos/feature branch", 12, []string{"~/my repos/f", "eature branc", "h"}},
+		{"long segment", wrapPath, "/abcdefgh/x", 4, []string{"/abc", "defg", "h/x"}},
+		{"segment fits own line", wrapPath, "/ab/cdef/", 5, []string{"/ab/", "cdef/"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := test.wrap(test.value, test.width)
+			if strings.Join(got, "|") != strings.Join(test.want, "|") {
+				t.Fatalf("got %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestHeaderReclaimsUnusedSummaryLine(t *testing.T) {
+	for _, test := range []struct {
+		width, lines int
+	}{
+		{32, 4},
+		{40, 4},
+		{80, 3},
+		{120, 3},
+	} {
+		t.Run(strconv.Itoa(test.width), func(t *testing.T) {
+			model := previewModel()
+			model.width, model.height = test.width, 24
+			model.refresh()
+			before := lipgloss.Height(model.renderHeader(test.width))
+			capacity := model.capacity
+			for index := range model.results {
+				model.results[index].Loading = false
+				model.results[index].Failed, model.results[index].Stale = true, true
+				model.results[index].Status = status.Parse("## main...origin/main [behind 1]\n M changed.go")
+			}
+			model.refresh()
+			after := lipgloss.Height(model.renderHeader(test.width))
+			if before != test.lines || after != test.lines || model.capacity != capacity {
+				t.Fatalf("header must keep %d lines as counts change: before=%d after=%d capacity %d->%d", test.lines, before, after, capacity, model.capacity)
+			}
+			if view := model.View(); lipgloss.Height(view) != 24 || !strings.Contains(strings.Split(view, "\n")[23], "q") {
+				t.Fatalf("reclaimed row must keep the footer on the last line:\n%s", view)
+			}
+		})
+	}
+}
+
+func TestDirectoryCountsUseSingularNouns(t *testing.T) {
+	model := newTestModel(testRepos("api"))
+	model.groups = []discover.Group{{Path: "/workspace", RepoIndexes: []int{0}}}
+	model.width, model.height = 80, 24
+	model.refresh()
+	if header := model.renderHeader(80); !strings.Contains(header, "1 directory") || !strings.Contains(header, "1 repo") || strings.Contains(header, "1 repos") {
+		t.Fatalf("singular counts: %s", header)
+	}
+	if header := model.renderHeader(36); !strings.Contains(header, "gitsy · 1 dir ") {
+		t.Fatalf("narrow directory count must stay singular: %s", header)
+	}
+}
+
+func TestViewsUseMiddleDotSeparators(t *testing.T) {
+	for _, size := range [][2]int{{120, 24}, {80, 24}, {40, 12}, {31, 8}, {20, 6}} {
+		model := previewModel()
+		model.width, model.height = size[0], size[1]
+		model.results[0].Status = status.Parse("## main\n M one.go\n?? two.go")
+		model.refresh()
+		if view := model.View(); strings.Contains(view, "•") {
+			t.Fatalf("%dx%d mixes separators:\n%s", size[0], size[1], view)
+		}
+	}
 }

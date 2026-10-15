@@ -185,6 +185,8 @@ func TestNameFromRemote(t *testing.T) {
 		{name: "dot", remote: "."},
 		{name: "parent", remote: ".."},
 		{name: "invalid URL", remote: "https://example.com/%zz"},
+		{name: "ext helper", remote: "ext::sleep 120"},
+		{name: "helper with URL", remote: "codecommit::us-east-1://servediff"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

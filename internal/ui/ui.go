@@ -17,6 +17,8 @@ type RepoResult struct {
 	Stale       bool
 	Loading     bool
 	LoadingText string
+	Fetching    bool   // loading includes an upstream fetch
+	Reason      string // short explanation for failed, stale or skipped state
 	Sync        *inspect.SyncOutcome
 }
 
@@ -39,7 +41,7 @@ type categoryStyle struct {
 var categoryStyles = map[status.Category]categoryStyle{
 	status.Modified:  {icon: "●", label: "modified", tone: "yellow"},
 	status.Staged:    {icon: "◆", label: "staged", tone: "green"},
-	status.Untracked: {icon: "+", label: "untracked", tone: "red"},
+	status.Untracked: {icon: "+", label: "untracked", tone: "muted"},
 	status.Deleted:   {icon: "-", label: "removed", tone: "red"},
 	status.Renamed:   {icon: "→", label: "renamed", tone: "magenta"},
 	status.Conflict:  {icon: "!", label: "conflict", tone: "red", bold: true},
@@ -53,46 +55,79 @@ func EmptyMessage(totalDiscovered int) string {
 	return ""
 }
 
+// Count formats a count with a singular or regular plural noun.
+func Count(count int, noun string) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, noun)
+	}
+	return fmt.Sprintf("%d %ss", count, noun)
+}
+
 func Title(results []RepoResult, totalDiscovered int) string {
 	visible := countVisible(results)
 	repoCount := fmt.Sprintf("%d/%d repos", visible, totalDiscovered)
 	if visible == totalDiscovered {
-		repoCount = fmt.Sprintf("%d repos", totalDiscovered)
+		repoCount = Count(totalDiscovered, "repo")
 	}
 
-	changed := 0
-	behind := 0
-	failed := 0
-	stale := 0
+	counts := map[string]int{}
 	for _, result := range results {
-		if len(result.Status.Items) > 0 {
-			changed++
-		}
-		if result.Status.Branch != nil && result.Status.Branch.Behind > 0 {
-			behind++
-		}
 		if result.Failed || result.Sync != nil && result.Sync.Kind == "failed" {
-			failed++
+			counts["failed"]++
+		}
+		if branch := result.Status.Branch; branch != nil {
+			if branch.Behind > 0 {
+				counts["behind"]++
+			}
+			if branch.Ahead > 0 {
+				counts["ahead"]++
+			}
 		}
 		if result.Stale {
-			stale++
+			counts["stale"]++
+		}
+		if len(result.Status.Items) > 0 {
+			counts["changed"]++
+		}
+		if result.Sync != nil && (result.Sync.Kind == "skipped" || result.Sync.Kind == "synced") {
+			counts[result.Sync.Kind]++
 		}
 	}
 
 	parts := []string{"gitsy", repoCount}
-	if changed > 0 {
-		parts = append(parts, fmt.Sprintf("%d changed", changed))
+	for _, label := range SummaryOrder {
+		if counts[label] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[label], label))
+		}
 	}
-	if behind > 0 {
-		parts = append(parts, fmt.Sprintf("%d behind", behind))
+	return strings.Join(parts, " · ")
+}
+
+// SummaryOrder ranks summary counts from most to least urgent; narrow
+// headers drop counts from the end.
+var SummaryOrder = []string{"failed", "behind", "ahead", "stale", "changed", "skipped", "synced"}
+
+// ReasonTone marks failures red and stale or skipped state yellow.
+func ReasonTone(result RepoResult) string {
+	if result.Failed || result.Sync != nil && result.Sync.Kind == "failed" {
+		return "red"
 	}
-	if failed > 0 {
-		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	return "yellow"
+}
+
+// SummaryTone maps a summary count label to a row tone.
+func SummaryTone(label string) string {
+	switch label {
+	case "failed":
+		return "red"
+	case "behind", "stale", "skipped":
+		return "yellow"
+	case "ahead", "changed":
+		return "blue"
+	case "synced":
+		return "green"
 	}
-	if stale > 0 {
-		parts = append(parts, fmt.Sprintf("%d stale", stale))
-	}
-	return strings.Join(parts, " • ")
+	return "gray"
 }
 
 func BuildRows(results []RepoResult) []Row {
@@ -111,9 +146,9 @@ func BuildRows(results []RepoResult) []Row {
 
 func RowsForRepo(result RepoResult) []Row {
 	if result.Loading {
-		text := "fetching status…"
+		text := loadingText(result)
 		if result.LoadingText != "" {
-			text = fmt.Sprintf("%s fetching status…", result.LoadingText)
+			text = result.LoadingText + " " + text
 		}
 		return []Row{{
 			Kind: "data",
@@ -127,7 +162,7 @@ func RowsForRepo(result RepoResult) []Row {
 	rows := []Row{}
 	summary := FormatBranchSummary(result.Status)
 	if counts := formatChangeCounts(result.Status.Items); counts != "" {
-		summary.Text += " • " + counts
+		summary.Text += " · " + counts
 	}
 	if result.Stale {
 		summary.Text = "⚠ stale · " + summary.Text
@@ -143,7 +178,7 @@ func RowsForRepo(result RepoResult) []Row {
 	if result.Sync != nil {
 		switch result.Sync.Kind {
 		case "synced":
-			summary.Text += fmt.Sprintf(" ⤓ synced ↓%d", result.Sync.Pulled)
+			summary.Text += " · synced " + Count(result.Sync.Pulled, "commit")
 			if !result.Failed && !result.Stale {
 				summary.Tone = "green"
 			}
@@ -188,10 +223,17 @@ type BranchSummary struct {
 	Dim  bool
 }
 
+func loadingText(result RepoResult) string {
+	if result.Fetching {
+		return "fetching…"
+	}
+	return "checking status…"
+}
+
 // CompactSummary keeps actionable state ahead of branch names in narrow columns.
 func CompactSummary(result RepoResult) string {
 	if result.Loading {
-		return "checking status…"
+		return loadingText(result)
 	}
 	if result.Failed {
 		return "⚠ status failed"
@@ -213,12 +255,12 @@ func CompactSummary(result RepoResult) string {
 		}
 	}
 	if conflicts > 0 {
-		parts = append(parts, fmt.Sprintf("%d conflict", conflicts))
+		parts = append(parts, Count(conflicts, "conflict"))
 	} else if count := len(result.Status.Items); count > 0 {
-		parts = append(parts, fmt.Sprintf("%d files", count))
+		parts = append(parts, Count(count, "file"))
 	}
 	if result.Sync != nil && result.Sync.Kind == "synced" {
-		parts = append(parts, fmt.Sprintf("synced ↓%d", result.Sync.Pulled))
+		parts = append(parts, "synced "+Count(result.Sync.Pulled, "commit"))
 	}
 	branch := result.Status.Branch
 	if branch != nil {
@@ -310,7 +352,11 @@ func formatChangeCounts(items []status.Item) string {
 	parts := []string{}
 	for _, label := range countLabelOrder {
 		if counts[label] > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", counts[label], label))
+			if label == "conflict" {
+				parts = append(parts, Count(counts[label], label))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d %s", counts[label], label))
+			}
 			delete(counts, label)
 		}
 	}
@@ -322,7 +368,7 @@ func formatChangeCounts(items []status.Item) string {
 	for _, label := range rest {
 		parts = append(parts, fmt.Sprintf("%d %s", counts[label], label))
 	}
-	return strings.Join(parts, " • ")
+	return strings.Join(parts, " · ")
 }
 
 func itemCategoryStyle(item status.Item) categoryStyle {
