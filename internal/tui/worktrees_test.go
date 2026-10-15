@@ -197,7 +197,7 @@ func TestWorktreeForceDeleteRequiresConfirmation(t *testing.T) {
 			model = updated.(Model)
 			view := model.View()
 			if calls != 1 || model.confirm == nil || model.deleting != "" ||
-				!strings.Contains(view, target.Path) || !strings.Contains(view, "Discards changed, untracked, and ignored files") ||
+				!strings.Contains(view, target.Path) || !strings.Contains(view, "Discards changed, untracked, ignored, and submodule files") ||
 				!strings.Contains(view, "y force") || len(model.visibleResults()) != 1 {
 				t.Fatalf("changed files must show second warning and retain target: %s", view)
 			}
@@ -288,7 +288,7 @@ func TestForceConfirmationRequiresVisibleWarningAndPath(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
 	model = updated.(Model)
 	if !model.canConfirm() || strings.Join(model.actionLines(), "") !=
-		"Force delete worktree? Discards changed, untracked, and ignored files. Branch kept."+model.confirm.Path {
+		"Force delete worktree? Discards changed, untracked, ignored, and submodule files. Branch kept."+model.confirm.Path {
 		t.Fatal("resize must reveal complete warning and path")
 	}
 }

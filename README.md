@@ -96,10 +96,11 @@ The **Worktrees** tab lists linked worktrees from the same scan, including those
 outside the supplied directories. Main checkouts remain in **Repositories**.
 Press `x` on a worktree to delete it. Deletion keeps the branch and
 removes the row from both tabs. Inspection must finish first; main, locked, and
-current-directory worktrees remain protected. Changed, untracked, or ignored
-files trigger a warning; review the path, then press `y` to force deletion and
-discard those files, or `Esc`/`n` to cancel. Press `X` to force delete and
-discard those files without confirmation. Every attempt checks fresh Git state.
+current-directory worktrees remain protected. Like Git, deletion removes ignored
+files without warning. Changed or untracked files and submodules trigger a
+warning; review the path, then press `y` to force deletion and discard those
+files, or `Esc`/`n` to cancel. Press `X` to force delete without confirmation.
+Every attempt checks fresh Git state.
 Left/right and Shift+Tab also switch views.
 
 Repository labels use the origin remote's repository name, falling back to the
