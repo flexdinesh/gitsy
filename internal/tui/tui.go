@@ -73,7 +73,6 @@ type Model struct {
 	inactive    navigationState
 	removed     map[string]bool
 	confirm     *discover.Repo
-	force       bool
 	deleting    string
 	notice      string
 	remove      func(context.Context, string, string, bool) git.WorktreeRemovalResult
@@ -212,7 +211,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.notice = "Deleted worktree. Branch kept."
 		} else if msg.result.NeedsForce {
 			model.confirm = &msg.repo
-			model.force = true
 			model.notice = ""
 		} else {
 			model.notice = "Delete failed: " + strings.TrimSpace(msg.result.Stderr)
@@ -1114,10 +1112,7 @@ func (model Model) footerPlain(content int) string {
 		if !model.canConfirm() {
 			return truncateCell("esc cancel", content)
 		}
-		if model.force {
-			return truncateCell("y force · esc cancel", content)
-		}
-		return truncateCell("y delete · esc cancel", content)
+		return truncateCell("y force · esc cancel", content)
 	}
 	if model.deleting != "" {
 		return truncateCell("Deleting… · q quit", content)
