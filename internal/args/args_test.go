@@ -102,9 +102,29 @@ func TestParseRejectsUnknownArgs(t *testing.T) {
 }
 
 func TestUsageDocumentsWorktreeKeys(t *testing.T) {
-	for _, want := range []string{"  x  ", "  X  ", "Force delete the selected worktree without confirmation"} {
+	for _, want := range []string{"  x  ", "  X  ", "Force delete the selected worktree without confirmation", "  D  ", "Delete all merged worktrees; confirms first", "--base <branch>"} {
 		if !strings.Contains(Usage, want) {
 			t.Fatalf("usage must document %q", want)
+		}
+	}
+}
+
+func TestParseSupportsBase(t *testing.T) {
+	for _, test := range []struct {
+		argv []string
+		want string
+		ok   bool
+	}{
+		{argv: nil, want: "", ok: true},
+		{argv: []string{"--base", "develop"}, want: "develop", ok: true},
+		{argv: []string{"--base=origin/trunk"}, want: "origin/trunk", ok: true},
+		{argv: []string{"--base"}},
+		{argv: []string{"--base", "--verbose"}},
+		{argv: []string{"--base="}},
+	} {
+		result := Parse(test.argv, "/cwd")
+		if result.OK != test.ok || result.Options.Base != test.want {
+			t.Fatalf("Parse(%v) = ok %t base %q, want ok %t base %q", test.argv, result.OK, result.Options.Base, test.ok, test.want)
 		}
 	}
 }

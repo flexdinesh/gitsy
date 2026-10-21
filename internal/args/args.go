@@ -20,6 +20,7 @@ Options:
   --verbose          Print warnings for skipped repos and failed git commands
   --no-fetch         Skip fetching upstream changes (use local status only)
   --sync             Fast-forward repos that can safely update without conflicts (always fetches)
+  --base <branch>    Default branch for merged worktrees (default: gitsy.base config, then origin/HEAD)
   --non-interactive  Print a status report and exit without opening the TUI
   --help             Show this help message
   --version          Show package version
@@ -27,6 +28,7 @@ Options:
 Worktrees tab keys:
   x                  Delete the selected worktree; confirms before discarding files
   X                  Force delete the selected worktree without confirmation
+  D                  Delete all merged worktrees; confirms first
 `
 
 type Options struct {
@@ -35,6 +37,7 @@ type Options struct {
 	NoFetch        bool
 	Sync           bool
 	NonInteractive bool
+	Base           string
 	Dirs           []string
 	Help           bool
 	Version        bool
@@ -82,6 +85,19 @@ func Parse(argv []string, cwd string) ParseResult {
 				return parseError("Missing value for --dir")
 			}
 			options.Dirs = append(options.Dirs, value)
+		case arg == "--base":
+			value, ok := nextValue(argv, index)
+			if !ok {
+				return parseError("Missing value for --base")
+			}
+			options.Base = value
+			index++
+		case strings.HasPrefix(arg, "--base="):
+			value := strings.TrimPrefix(arg, "--base=")
+			if value == "" {
+				return parseError("Missing value for --base")
+			}
+			options.Base = value
 		case arg == "--max-depth":
 			value, ok := nextValue(argv, index)
 			if !ok {

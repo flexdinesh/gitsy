@@ -25,6 +25,8 @@ type Result struct {
 	Stale  bool
 	Sync   *SyncOutcome
 	Reason string // short explanation for failed, stale or skipped state
+	// MergedInto names the base branch a linked worktree's HEAD is merged into.
+	MergedInto string
 }
 
 type gitCommands struct {
@@ -32,6 +34,9 @@ type gitCommands struct {
 	status  func(context.Context, string) git.Result
 	merge   func(context.Context, string, string) git.Result
 	resolve func(context.Context, string, string) git.Result
+	// Merged detection runs only when both are set.
+	baseRefs func(context.Context, string) []string
+	merged   func(context.Context, string, []string) (string, git.Result)
 }
 
 func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
@@ -97,6 +102,29 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	result := repoState(ctx, repo, noFetch, syncRepo, warn, commands)
+	if result.Failed || repo.Worktree == nil || commands.baseRefs == nil || commands.merged == nil || ctx.Err() != nil {
+		return result
+	}
+	bases := commands.baseRefs(ctx, repo.Path)
+	if len(bases) == 0 {
+		if warn != nil {
+			warn(fmt.Sprintf("Merged check skipped for %s: no base branch found", repo.DisplayName))
+		}
+		return result
+	}
+	into, mergedResult := commands.merged(ctx, repo.Path, bases)
+	if !mergedResult.OK {
+		if warn != nil && ctx.Err() == nil {
+			warn(fmt.Sprintf("Merged check failed for %s: %s", repo.DisplayName, gitError(mergedResult)))
+		}
+		return result
+	}
+	result.MergedInto = into
+	return result
+}
+
+func repoState(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string), commands gitCommands) Result {
 	stale := false
 	reason := ""
 	if !noFetch || syncRepo {

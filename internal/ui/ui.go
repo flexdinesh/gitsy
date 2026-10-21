@@ -20,6 +20,7 @@ type RepoResult struct {
 	Fetching    bool   // loading includes an upstream fetch
 	Reason      string // short explanation for failed, stale or skipped state
 	Sync        *inspect.SyncOutcome
+	MergedInto  string // base branch a linked worktree is merged into
 }
 
 type Row struct {

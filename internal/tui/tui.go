@@ -37,7 +37,8 @@ type rowEntry struct {
 	tone       string
 	bold       bool
 	dim        bool
-	repoIndex  int // appearance index; -1 for group headers, dividers and empty states
+	merged     bool // merged worktree rows render fully dimmed unless selected
+	repoIndex  int  // appearance index; -1 for group headers, dividers and empty states
 	group      string
 	groupSize  int
 	groupDone  int
@@ -79,6 +80,10 @@ type Model struct {
 	deleting    string
 	notice      string
 	remove      func(context.Context, string, string, bool) git.WorktreeRemovalResult
+	base        string
+	merged      func(context.Context, string, string) string
+	bulkConfirm []ui.RepoResult
+	bulk        *bulkDeletion
 
 	tableWidth int
 	tableOuter int
@@ -92,9 +97,13 @@ type repoDoneMsg struct {
 	result inspect.Result
 }
 
-func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, workspace discover.Workspace, noFetch bool, syncRepos bool, warn func(string)) error {
-	model := newModel(ctx, cancel, workspace.Repos, noFetch, syncRepos, warn, inspect.NewSession().RepoContext)
+func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, workspace discover.Workspace, noFetch bool, syncRepos bool, base string, warn func(string)) error {
+	session := inspect.NewSession()
+	session.DetectMerged = true
+	session.Base = base
+	model := newModel(ctx, cancel, workspace.Repos, noFetch, syncRepos, warn, session.RepoContext)
 	model.groups = workspace.Groups
+	model.base = base
 	detectBackground(output)
 	program := tea.NewProgram(
 		model,
@@ -139,6 +148,7 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 		next:     min(maxInspecting, len(repos)),
 		inspect:  inspect,
 		remove:   git.RemoveWorktreeContext,
+		merged:   mergedInto,
 		capacity: minTableHeight,
 	}
 }
@@ -184,7 +194,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	case tea.MouseMsg:
-		if model.confirm != nil || model.deleting != "" {
+		if model.confirm != nil || model.bulkConfirm != nil || model.deleting != "" {
 			return model, nil
 		}
 		if msg.Action == tea.MouseActionPress {
@@ -200,12 +210,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case repoDoneMsg:
 		if msg.index >= 0 && msg.index < len(model.results) && model.results[msg.index].Loading {
 			model.results[msg.index] = ui.RepoResult{
-				Repo:   msg.result.Repo,
-				Status: msg.result.Status,
-				Failed: msg.result.Failed,
-				Stale:  msg.result.Stale,
-				Sync:   msg.result.Sync,
-				Reason: msg.result.Reason,
+				Repo:       msg.result.Repo,
+				Status:     msg.result.Status,
+				Failed:     msg.result.Failed,
+				Stale:      msg.result.Stale,
+				Sync:       msg.result.Sync,
+				Reason:     msg.result.Reason,
+				MergedInto: msg.result.MergedInto,
 			}
 		}
 		model.refresh()
@@ -222,14 +233,34 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.confirm = &msg.repo
 			model.notice = ""
 		} else {
-			model.notice = "Delete failed: " + strings.TrimSpace(msg.result.Stderr)
-			if strings.TrimSpace(msg.result.Stderr) == "" {
-				model.notice = fmt.Sprintf("Delete failed: git exited %d", msg.result.Status)
-			}
+			model.notice = "Delete failed: " + removalError(msg.result)
 		}
 		model.browseEmpty = false
 		model.refresh()
 		return model, nil
+	case bulkStepMsg:
+		if model.bulk == nil {
+			return model, nil
+		}
+		bulk := *model.bulk
+		switch {
+		case msg.skipped:
+			bulk.skipped++
+		case msg.result.OK:
+			bulk.deleted++
+			if model.removed == nil {
+				model.removed = map[string]bool{}
+			}
+			model.removed[msg.repo.Path] = true
+		default:
+			bulk.failed++
+			if bulk.err == "" {
+				bulk.err = removalError(msg.result)
+			}
+		}
+		bulk.next++
+		model.bulk = &bulk
+		return model, model.nextBulk()
 	case spinner.TickMsg:
 		if model.pending() == 0 {
 			return model, nil
@@ -332,7 +363,11 @@ func (model Model) compactView(width, height int) string {
 		}
 		lines = append(lines, iconSelected+" "+name)
 		for index, row := range ui.RowsForRepo(result) {
-			lines = append(lines, strings.TrimSpace(row.Text))
+			text := strings.TrimSpace(row.Text)
+			if index == 0 && model.worktrees && result.MergedInto != "" {
+				text = "merged · " + text
+			}
+			lines = append(lines, text)
 			if index == 0 && result.Reason != "" {
 				lines = append(lines, result.Reason)
 			}
@@ -484,7 +519,7 @@ func (model Model) keyBurst(runes []rune) (tea.Model, tea.Cmd) {
 	}
 	commands := []tea.Cmd{}
 	for _, key := range runes {
-		if strings.ContainsRune("xXyY", key) {
+		if strings.ContainsRune("xXyYD", key) {
 			continue
 		}
 		updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
@@ -686,6 +721,13 @@ func (model Model) tableRows() []rowEntry {
 	if model.worktrees {
 		for index := range entries {
 			entry := &entries[index]
+			if entry.repoIndex >= 0 && results[entry.repoIndex].MergedInto != "" {
+				entry.merged = true
+				if entry.number != "" {
+					entry.status = "merged · " + entry.status
+					entry.compact = "merged · " + entry.compact
+				}
+			}
 			if entry.number == "" {
 				continue
 			}
@@ -1066,13 +1108,16 @@ func (model Model) infoLines(width int) []string {
 	if result.Sync != nil && result.Sync.Kind == "skipped" && !strings.Contains(summary, "sync skipped") {
 		lines = append(lines, wrapInfo("Sync skipped: "+result.Sync.Reason, width, warning)...)
 	}
+	if model.worktrees && result.MergedInto != "" {
+		lines = append(lines, wrapInfo("Merged into "+result.MergedInto, width, textLo)...)
+	}
 	return lines
 }
 
 // detailHeight reserves one line above the footer for selected context
 // whenever the rail is hidden, so selection changes never shift the layout.
 func (model Model) detailHeight(width int) int {
-	if _, _, shown := layoutWidths(width); shown || model.confirm != nil || model.deleting != "" {
+	if _, _, shown := layoutWidths(width); shown || model.confirm != nil || model.bulkConfirm != nil || model.deleting != "" {
 		return 0
 	}
 	return 1
@@ -1247,7 +1292,10 @@ func renderRow(entry rowEntry, cols tableColumns, selected int) string {
 			toneStyle(entry.tone, entry.bold, false).Background(selection).Render(status)
 	}
 	identity := lipgloss.NewStyle().Foreground(textHi)
-	return headerMetaStyle().Render(number) + gap + identity.Render(name) + headerMetaStyle().Render(tag) + identity.Render(after) + gap + toneStyle(entry.tone, false, entry.dim).Render(status)
+	if entry.merged {
+		identity = headerMetaStyle()
+	}
+	return headerMetaStyle().Render(number) + gap + identity.Render(name) + headerMetaStyle().Render(tag) + identity.Render(after) + gap + toneStyle(entry.tone, false, entry.dim || entry.merged).Render(status)
 }
 
 // selectionCap ends selected rows when the terminal has no styling.
@@ -1330,7 +1378,7 @@ func (model Model) renderFooter(width int) string {
 }
 
 func (model Model) footerPlain(content int) string {
-	if model.confirm != nil {
+	if model.confirm != nil || model.bulkConfirm != nil {
 		if !model.canConfirm() {
 			return truncateCell("esc cancel", content)
 		}
@@ -1352,6 +1400,9 @@ func (model Model) footerPlain(content int) string {
 	}
 	if model.worktrees && position != "" {
 		hints = []string{"↑/↓ j/k move · tab views · f files · x delete · q quit", "↑↓ · tab views · x delete · q quit", "tab views · x delete · q", "tab · x · q", "q"}
+		if len(model.mergedResults()) > 0 {
+			hints = []string{"↑/↓ j/k move · tab views · f files · x delete · D merged · q quit", "↑↓ · tab views · x delete · D merged · q quit", "tab views · x delete · D merged · q", "tab · x · D · q", "q"}
+		}
 	}
 	hint := hints[len(hints)-1]
 	for _, option := range hints {
