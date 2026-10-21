@@ -31,6 +31,16 @@ func RunContext(ctx context.Context, cwd string, args ...string) Result {
 	return runCommand(ctx, cmd)
 }
 
+func RunInputContext(ctx context.Context, cwd, input string, args ...string) Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	fullArgs := append([]string{"-C", cwd}, args...)
+	cmd := exec.CommandContext(ctx, "git", fullArgs...)
+	cmd.Stdin = strings.NewReader(input)
+	return runCommand(ctx, cmd)
+}
+
 func runCommand(ctx context.Context, cmd *exec.Cmd) Result {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

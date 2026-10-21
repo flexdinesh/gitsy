@@ -16,10 +16,15 @@ type fetchCall struct {
 
 // Session shares fetches only for one inspection run.
 type Session struct {
+	// DetectMerged checks linked worktrees against Base, or the detected default branch.
+	DetectMerged bool
+	Base         string
+
 	mutex    sync.Mutex
 	fetches  map[string]*fetchCall
 	commands gitCommands
 	fetchKey func(context.Context, string) string
+	baseRefs func(context.Context, string, string) []string
 }
 
 func NewSession() *Session {
@@ -30,14 +35,22 @@ func NewSession() *Session {
 			status:  git.ShortStatusContext,
 			merge:   git.FastForwardToContext,
 			resolve: git.ResolveCommitContext,
+			merged:  git.MergedContext,
 		},
 		fetchKey: git.FetchKeyContext,
+		baseRefs: git.BaseRefsContext,
 	}
 }
 
 func (session *Session) RepoContext(ctx context.Context, repo discover.Repo, noFetch, syncRepo bool, warn func(string)) Result {
 	commands := session.commands
 	commands.fetch = session.fetch
+	commands.baseRefs = nil
+	if session.DetectMerged {
+		commands.baseRefs = func(ctx context.Context, repoPath string) []string {
+			return session.baseRefs(ctx, repoPath, session.Base)
+		}
+	}
 	return repoContext(ctx, repo, noFetch, syncRepo, warn, commands)
 }
 

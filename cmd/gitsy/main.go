@@ -111,7 +111,7 @@ func run(argv []string) error {
 	if options.NonInteractive {
 		err = runPlain(ctx, os.Stdout, workspace, noFetch, options.Sync, processWarn)
 	} else {
-		err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, processWarn)
+		err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, options.Base, processWarn)
 	}
 	if options.Verbose {
 		warnings.Print(os.Stderr)
