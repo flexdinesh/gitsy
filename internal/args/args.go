@@ -8,22 +8,35 @@ import (
 
 const DefaultMaxDepth = 3
 
-const Usage = `Usage: gitsy [options]
+const Usage = `Usage: gitsy [options] [command]
 
 Show git status across child repositories and linked worktrees.
 Fetch all remotes fresh every run; linked worktrees share fetching when safe.
 Sync skips repos if fetching fails, including failures from unrelated remotes.
+Without a command, gitsy opens the TUI.
+
+Commands:
+  status                     Print a status summary and exit
+  sync                       Fast-forward repos that can safely update without conflicts (always fetches)
+    --fetch-only             Fetch remotes without updating local branches
+  worktree delete-merged     Delete all merged linked worktrees; confirms first, keeps branches
+    -y, --yes                Delete without confirming
 
 Options:
   --max-depth <n>    Scan repository directories up to n nested levels (default: 3)
   --dir <path>       Scan <path> instead of the current directory (repeatable)
-  --verbose          Print warnings for skipped repos and failed git commands
+  --verbose          Print per-repo details and warnings for failed git commands
   --no-fetch         Skip fetching upstream changes (use local status only)
-  --sync             Fast-forward repos that can safely update without conflicts (always fetches)
+  --sync             Open the TUI and fast-forward repos that can safely update (always fetches)
   --base <branch>    Default branch for merged worktrees (default: gitsy.base config, then origin/HEAD)
-  --non-interactive  Print a status report and exit without opening the TUI
   --help             Show this help message
   --version          Show package version
+
+Exit codes:
+  0                  Success, including dirty, behind, or skipped repos
+  1                  A git operation failed, deletion was declined, or scanning failed
+  2                  Invalid usage, or confirmation required without a terminal
+  130                Interrupted
 
 Worktrees tab keys:
   x                  Delete the selected worktree; confirms before discarding files
@@ -31,16 +44,27 @@ Worktrees tab keys:
   D                  Delete all merged worktrees; confirms first
 `
 
+type Command string
+
+const (
+	CommandTUI          Command = ""
+	CommandStatus       Command = "status"
+	CommandSync         Command = "sync"
+	CommandDeleteMerged Command = "worktree delete-merged"
+)
+
 type Options struct {
-	MaxDepth       int
-	Verbose        bool
-	NoFetch        bool
-	Sync           bool
-	NonInteractive bool
-	Base           string
-	Dirs           []string
-	Help           bool
-	Version        bool
+	Command   Command
+	MaxDepth  int
+	Verbose   bool
+	NoFetch   bool
+	Sync      bool
+	FetchOnly bool
+	Yes       bool
+	Base      string
+	Dirs      []string
+	Help      bool
+	Version   bool
 }
 
 type ParseResult struct {
@@ -53,6 +77,7 @@ func Parse(argv []string, cwd string) ParseResult {
 	options := Options{
 		MaxDepth: DefaultMaxDepth,
 	}
+	words := []string{}
 
 	for index := 0; index < len(argv); index++ {
 		arg := argv[index]
@@ -66,8 +91,10 @@ func Parse(argv []string, cwd string) ParseResult {
 			options.NoFetch = true
 		case arg == "--sync":
 			options.Sync = true
-		case arg == "--non-interactive":
-			options.NonInteractive = true
+		case arg == "--fetch-only":
+			options.FetchOnly = true
+		case arg == "-y" || arg == "--yes":
+			options.Yes = true
 		case arg == "--help":
 			options.Help = true
 		case arg == "--version":
@@ -116,15 +143,65 @@ func Parse(argv []string, cwd string) ParseResult {
 				return parseError(fmt.Sprintf("Invalid --max-depth value: %s", value))
 			}
 			options.MaxDepth = parsed
+		case !strings.HasPrefix(arg, "-"):
+			words = append(words, arg)
 		default:
 			return parseError(fmt.Sprintf("Unknown argument: %s", arg))
 		}
+	}
+
+	command, err := parseCommand(words)
+	if err != nil {
+		return ParseResult{OK: false, Err: err}
+	}
+	options.Command = command
+	if err := validate(options); err != nil {
+		return ParseResult{OK: false, Err: err}
 	}
 
 	if len(options.Dirs) == 0 {
 		options.Dirs = []string{cwd}
 	}
 	return ParseResult{OK: true, Options: options}
+}
+
+func parseCommand(words []string) (Command, error) {
+	if len(words) == 0 {
+		return CommandTUI, nil
+	}
+	switch words[0] {
+	case "status", "sync":
+		if len(words) > 1 {
+			return "", fmt.Errorf("Unknown argument: %s", words[1])
+		}
+		return Command(words[0]), nil
+	case "worktree":
+		if len(words) == 1 {
+			return "", fmt.Errorf("Missing worktree command (expected delete-merged)")
+		}
+		if words[1] != "delete-merged" {
+			return "", fmt.Errorf("Unknown worktree command: %s", words[1])
+		}
+		if len(words) > 2 {
+			return "", fmt.Errorf("Unknown argument: %s", words[2])
+		}
+		return CommandDeleteMerged, nil
+	}
+	return "", fmt.Errorf("Unknown command: %s", words[0])
+}
+
+func validate(options Options) error {
+	switch {
+	case options.Sync && options.Command != CommandTUI:
+		return fmt.Errorf("--sync only applies to the TUI; use gitsy sync")
+	case options.FetchOnly && options.Command != CommandSync:
+		return fmt.Errorf("--fetch-only only applies to gitsy sync")
+	case options.Yes && options.Command != CommandDeleteMerged:
+		return fmt.Errorf("-y only applies to gitsy worktree delete-merged")
+	case options.NoFetch && options.Command == CommandSync:
+		return fmt.Errorf("--no-fetch cannot be used with gitsy sync; sync always fetches")
+	}
+	return nil
 }
 
 func nextValue(argv []string, index int) (string, bool) {

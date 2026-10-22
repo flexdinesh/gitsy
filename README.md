@@ -23,11 +23,18 @@ gitsy
 # Fast-forward repositories that can safely update without conflicts.
 gitsy --sync
 
-# Print a status report and exit, leaving it in terminal scrollback.
-gitsy --non-interactive
+# Print a status summary and exit; add --verbose for a per-repo report.
+gitsy status
 
-# Fast-forward safely, print the results, and exit.
-gitsy --non-interactive --sync
+# Fast-forward safely without opening the TUI, print a summary, and exit.
+gitsy --dir ~/workspace sync
+
+# Fetch all remotes without updating local branches.
+gitsy --dir ~/workspace sync --fetch-only
+
+# Delete all merged linked worktrees after confirming; -y skips the prompt.
+gitsy --dir ~/workspace worktree delete-merged
+gitsy --dir ~/workspace worktree delete-merged -y
 
 # Scan repository directories up to a specific nested depth.
 gitsy --max-depth 5
@@ -66,20 +73,12 @@ commands fetch per checkout to preserve their existing behavior. Checkout-relati
 validation, and bundle paths also disable sharing. Status and sync remain
 independent for each checkout.
 
-`--sync` always fetches, even with `--no-fetch`. Only clean branches with an
-upstream, commits behind, and no commits ahead can fast-forward. If any remote
+`--sync` and `gitsy sync` always fetch; `--sync` ignores `--no-fetch`. Only
+clean branches with an upstream, commits behind, and no commits ahead can
+fast-forward. If any remote
 fails to fetch, sync is skipped for that checkout, including failures from
 unrelated remotes. Available local status is shown as stale with
 `sync skipped: fetch failed`.
-
-Use `--non-interactive` for a status report: a brief progress line followed by
-grouped checkout paths, branch status, change counts, and sync outcomes. It
-includes clean repositories and linked worktrees, prints no filenames or terminal
-control sequences, and exits automatically. Existing flags still apply, including
-`--no-fetch` and `--verbose`. Dirty, behind, or diverged repositories are normal
-results and exit successfully; failed fetch, status, or sync commands return exit
-code 1 after printing available results. Repositories skipped by the safe sync
-rules are normal results. An empty workspace exits successfully.
 
 With `--dir`, only the supplied directories are scanned. `--max-depth` applies
 to each directory; linked worktrees are included wherever they live. Relative
@@ -105,6 +104,39 @@ Left/right and Shift+Tab also switch views.
 
 Repository labels use the origin remote's repository name, falling back to the
 directory name when unavailable. Full paths appear in the sidebar.
+
+## Commands
+
+Commands run without the TUI and exit. Options such as `--dir`, `--max-depth`,
+`--no-fetch`, `--base`, and `--verbose` may appear before or after the command.
+
+| Command | Does | Prints |
+| --- | --- | --- |
+| `gitsy status` | Fetches (unless `--no-fetch`) and reads status | `gitsy · 6 repos · 1 behind · 2 changed` |
+| `gitsy sync` | Fetches and fast-forwards safe repos | `Synced 2 of 6 repos. 3 up to date, 1 failed.` |
+| `gitsy sync --fetch-only` | Fetches without touching local branches | `Fetched 5 of 6 repos. 1 failed.` |
+| `gitsy worktree delete-merged` | Force deletes merged linked worktrees; keeps branches | `Deleted 2 merged worktrees. Branches kept.` |
+
+Each command prints one summary line on stdout and one line per failed
+repository on stderr, such as `gitsy: api (/ws/api): fetch failed: auth`.
+`--verbose` adds the grouped per-repo report (or per-worktree deletion results)
+and detailed Git warnings. Output contains no filenames or terminal control
+sequences. Dirty, behind, diverged, and sync-skipped repositories are normal
+results. An empty workspace succeeds.
+
+`worktree delete-merged` lists merged worktrees and asks `[y/N]` before
+deleting. Without a terminal it refuses unless `-y` is given. Each worktree is
+rechecked right before deletion; main, locked, and current-directory worktrees
+stay protected.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success, including dirty, behind, or skipped repos |
+| `1` | A fetch, status, sync, or delete failed; deletion was declined; or scanning failed |
+| `2` | Invalid usage, or confirmation required without a terminal |
+| `130` | Interrupted |
 
 ## Development
 

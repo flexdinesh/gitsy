@@ -54,6 +54,13 @@ func (session *Session) RepoContext(ctx context.Context, repo discover.Repo, noF
 	return repoContext(ctx, repo, noFetch, syncRepo, warn, commands)
 }
 
+// ReposContext inspects repos concurrently, preserving their order in the results.
+func (session *Session) ReposContext(ctx context.Context, repos []discover.Repo, noFetch, syncRepos bool, warn func(string)) []Result {
+	return reposContext(ctx, repos, func(ctx context.Context, repo discover.Repo) Result {
+		return session.RepoContext(ctx, repo, noFetch, syncRepos, warn)
+	})
+}
+
 func (session *Session) fetch(ctx context.Context, repoPath string, timeout time.Duration) git.Result {
 	if ctx.Err() != nil {
 		return git.Result{Stderr: ctx.Err().Error(), Status: -1}

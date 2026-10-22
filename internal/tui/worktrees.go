@@ -197,18 +197,7 @@ func (model *Model) nextBulk() tea.Cmd {
 }
 
 func (bulk bulkDeletion) summary() string {
-	message := "Deleted " + ui.Count(bulk.deleted, "merged worktree") + "."
-	parts := []string{}
-	if bulk.skipped > 0 {
-		parts = append(parts, fmt.Sprintf("%d skipped", bulk.skipped))
-	}
-	if bulk.failed > 0 {
-		parts = append(parts, fmt.Sprintf("%d failed: %s", bulk.failed, strings.TrimSuffix(bulk.err, ".")))
-	}
-	if len(parts) > 0 {
-		message += " " + strings.Join(parts, ", ") + "."
-	}
-	return message + " Branches kept."
+	return ui.DeletionSummary(bulk.deleted, bulk.skipped, bulk.failed, bulk.err)
 }
 
 // startRemoval revalidates fresh Git state; unforced dirty worktrees return NeedsForce for confirmation.
@@ -285,19 +274,7 @@ func (model Model) actionLines() []string {
 
 func (model Model) confirmationLines(content int) []string {
 	if model.bulkConfirm != nil {
-		prompt := "Delete " + ui.Count(len(model.bulkConfirm), "merged worktree") + "?"
-		dirty := 0
-		for _, result := range model.bulkConfirm {
-			if len(result.Status.Items) > 0 {
-				dirty++
-			}
-		}
-		if dirty == 1 {
-			prompt += " 1 has local files that will be discarded."
-		} else if dirty > 1 {
-			prompt += fmt.Sprintf(" %d have local files that will be discarded.", dirty)
-		}
-		return wrapPlain(prompt+" Branches kept.", content)
+		return wrapPlain(ui.DeletionPrompt(model.bulkConfirm), content)
 	}
 	prompt := "Force delete worktree? Discards changed, untracked, ignored, and submodule files. Branch kept."
 	return append(wrapPlain(prompt, content), wrapPath(displayGroupPath(model.confirm.Path, model.home), content)...)
