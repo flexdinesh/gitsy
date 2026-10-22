@@ -44,10 +44,7 @@ func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(messag
 }
 
 func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
-	session := NewSession()
-	return reposContext(ctx, repos, func(ctx context.Context, repo discover.Repo) Result {
-		return session.RepoContext(ctx, repo, noFetch, syncRepos, warn)
-	})
+	return NewSession().ReposContext(ctx, repos, noFetch, syncRepos, warn)
 }
 
 func reposContext(ctx context.Context, repos []discover.Repo, inspect func(context.Context, discover.Repo) Result) []Result {

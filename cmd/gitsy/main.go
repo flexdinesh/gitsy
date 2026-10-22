@@ -10,12 +10,17 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/flexdinesh/gitsy/internal/args"
 	"github.com/flexdinesh/gitsy/internal/discover"
-	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/tui"
-	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/flexdinesh/gitsy/internal/version"
+)
+
+const (
+	exitFailed      = 1
+	exitUsage       = 2
+	exitInterrupted = 130
 )
 
 type usageError struct {
@@ -25,6 +30,21 @@ type usageError struct {
 func (err usageError) Error() string {
 	return fmt.Sprintf("%s\n\n%s", err.err, args.Usage)
 }
+
+// exitError carries an exit code; a nil err means details were already printed.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (err exitError) Error() string {
+	if err.err == nil {
+		return ""
+	}
+	return err.err.Error()
+}
+
+var errInterrupted = exitError{code: exitInterrupted, err: errors.New("interrupted")}
 
 type warningCollector struct {
 	mutex    sync.Mutex
@@ -37,7 +57,7 @@ func (collector *warningCollector) Add(message string) {
 	collector.messages = append(collector.messages, message)
 }
 
-func (collector *warningCollector) Print(output *os.File) {
+func (collector *warningCollector) Print(output io.Writer) {
 	collector.mutex.Lock()
 	defer collector.mutex.Unlock()
 	for _, message := range collector.messages {
@@ -46,10 +66,26 @@ func (collector *warningCollector) Print(output *os.File) {
 }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "gitsy: %s\n", err)
-		os.Exit(1)
+	os.Exit(exitCode(os.Stderr, run(os.Args[1:])))
+}
+
+// exitCode prints err, if it has a message, and maps it to a process exit code.
+func exitCode(output io.Writer, err error) int {
+	if err == nil {
+		return 0
 	}
+	if message := err.Error(); message != "" {
+		fmt.Fprintf(output, "gitsy: %s\n", message)
+	}
+	var usage usageError
+	var exit exitError
+	switch {
+	case errors.As(err, &usage):
+		return exitUsage
+	case errors.As(err, &exit):
+		return exit.code
+	}
+	return exitFailed
 }
 
 func run(argv []string) error {
@@ -76,13 +112,12 @@ func run(argv []string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if options.NonInteractive {
+	interrupted := func() bool { return false }
+	if options.Command != args.CommandTUI {
 		signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		ctx = signalCtx
-		if _, err := fmt.Fprintln(os.Stdout, "Checking repositories…"); err != nil {
-			return err
-		}
+		interrupted = func() bool { return signalCtx.Err() != nil }
 	}
 
 	warnings := &warningCollector{}
@@ -94,13 +129,11 @@ func run(argv []string) error {
 		Verbose:  options.Verbose,
 		Warn:     warnings.Add,
 	})
+	if interrupted() {
+		return errInterrupted
+	}
 	if err != nil {
 		return err
-	}
-
-	noFetch := options.NoFetch
-	if options.Sync {
-		noFetch = false
 	}
 
 	var processWarn func(message string)
@@ -108,33 +141,23 @@ func run(argv []string) error {
 		processWarn = warnings.Add
 	}
 
-	if options.NonInteractive {
-		err = runPlain(ctx, os.Stdout, workspace, noFetch, options.Sync, processWarn)
-	} else {
+	if options.Command == args.CommandTUI {
+		noFetch := options.NoFetch && !options.Sync
 		err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, options.Base, processWarn)
+	} else {
+		err = runCommand(ctx, console{
+			stdin:    os.Stdin,
+			stdout:   os.Stdout,
+			stderr:   os.Stderr,
+			terminal: term.IsTerminal(os.Stdin.Fd()),
+			verbose:  options.Verbose,
+		}, workspace, options, processWarn)
 	}
 	if options.Verbose {
 		warnings.Print(os.Stderr)
 	}
+	if interrupted() {
+		return errInterrupted
+	}
 	return err
-}
-
-func runPlain(ctx context.Context, output io.Writer, workspace discover.Workspace, noFetch, syncRepos bool, warn func(string)) error {
-	results := inspect.ReposContext(ctx, workspace.Repos, noFetch, syncRepos, warn)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return printPlainResults(output, workspace, results)
-}
-
-func printPlainResults(output io.Writer, workspace discover.Workspace, results []inspect.Result) error {
-	if _, err := io.WriteString(output, ui.PlainReport(workspace, results)); err != nil {
-		return err
-	}
-	for _, result := range results {
-		if result.Failed || result.Stale || result.Sync != nil && result.Sync.Kind == "failed" {
-			return errors.New("git operations failed (use --verbose for details)")
-		}
-	}
-	return nil
 }
