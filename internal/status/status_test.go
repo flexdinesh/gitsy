@@ -55,3 +55,26 @@ func TestParsesStatusCategories(t *testing.T) {
 		})
 	}
 }
+
+func TestParsesUnbornBranches(t *testing.T) {
+	tests := []struct {
+		line     string
+		upstream string
+		gone     bool
+	}{
+		{line: "## No commits yet on main"},
+		{line: "## No commits yet on main...origin/main [gone]", upstream: "origin/main", gone: true},
+		{line: "## Initial commit on main"},
+	}
+	for _, test := range tests {
+		t.Run(test.line, func(t *testing.T) {
+			branch := ParseBranchLine(test.line)
+			if branch.Name != "main" || !branch.Unborn || branch.Upstream != test.upstream || branch.Gone != test.gone {
+				t.Fatalf("unexpected branch: %+v", branch)
+			}
+		})
+	}
+	if branch := ParseBranchLine("## main...origin/main"); branch.Unborn {
+		t.Fatalf("branch with commits must not be unborn: %+v", branch)
+	}
+}

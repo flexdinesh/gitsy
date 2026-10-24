@@ -18,13 +18,21 @@ type SyncOutcome struct {
 	Reason string
 }
 
+// Remotes describes configured remotes; the zero value means they are unknown.
+type Remotes struct {
+	Known     bool
+	Count     int
+	OriginURL string
+}
+
 type Result struct {
-	Repo   discover.Repo
-	Status status.Parsed
-	Failed bool
-	Stale  bool
-	Sync   *SyncOutcome
-	Reason string // short explanation for failed, stale or skipped state
+	Repo    discover.Repo
+	Status  status.Parsed
+	Failed  bool
+	Stale   bool
+	Sync    *SyncOutcome
+	Reason  string // short explanation for failed, stale or skipped state
+	Remotes Remotes
 	// MergedInto names the base branch a linked worktree's HEAD is merged into.
 	MergedInto string
 }
@@ -37,6 +45,8 @@ type gitCommands struct {
 	// Merged detection runs only when both are set.
 	baseRefs func(context.Context, string) []string
 	merged   func(context.Context, string, []string) (string, git.Result)
+	// Remote details stay unknown when unset.
+	remotes func(context.Context, string) git.Result
 }
 
 func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
@@ -134,11 +144,6 @@ func repoState(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo b
 			}
 		}
 	}
-	var syncOutcome *SyncOutcome
-	if syncRepo && stale && ctx.Err() == nil {
-		syncOutcome = &SyncOutcome{Kind: "skipped", Reason: "fetch failed"}
-	}
-
 	statusResult := commands.status(ctx, repo.Path)
 	if !statusResult.OK {
 		if warn != nil {
@@ -149,18 +154,17 @@ func repoState(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo b
 			Status: status.Parse(""),
 			Failed: true,
 			Stale:  stale,
-			Sync:   syncOutcome,
 			Reason: statusReason(statusResult),
 		}
 	}
 
 	parsedStatus := status.Parse(statusResult.Stdout)
 	result := Result{
-		Repo:   repo,
-		Status: parsedStatus,
-		Stale:  stale,
-		Sync:   syncOutcome,
-		Reason: reason,
+		Repo:    repo,
+		Status:  parsedStatus,
+		Stale:   stale,
+		Reason:  reason,
+		Remotes: remotes(ctx, repo, warn, commands),
 	}
 	if syncRepo && stale {
 		return result
@@ -214,24 +218,50 @@ func repoState(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo b
 	return result
 }
 
+func remotes(ctx context.Context, repo discover.Repo, warn func(string), commands gitCommands) Remotes {
+	if commands.remotes == nil {
+		return Remotes{}
+	}
+	result := commands.remotes(ctx, repo.Path)
+	// git config exits 1 when no key matches.
+	if !result.OK && result.Status != 1 {
+		if warn != nil && ctx.Err() == nil {
+			warn(fmt.Sprintf("Failed to read remotes for %s: %s", repo.DisplayName, gitError(result)))
+		}
+		return Remotes{}
+	}
+	urls := git.ParseRemoteURLs(result.Stdout)
+	return Remotes{Known: true, Count: len(urls), OriginURL: urls["origin"]}
+}
+
 const fetchTimeout = 30 * time.Second
+
+// Fetch reasons are stable phrases shown in rows and matched for hints.
+const (
+	ReasonFetchTimeout = "fetch timed out"
+	ReasonAuth         = "remote auth needed"
+	ReasonNotFound     = "remote repo not found"
+	ReasonUnreachable  = "remote unreachable"
+	ReasonCanceled     = "fetch canceled"
+	ReasonFetchFailed  = "fetch failed"
+)
 
 // fetchReason classifies fetch stderr into a short, stable phrase.
 func fetchReason(result git.Result) string {
 	stderr := strings.ToLower(result.Stderr)
 	switch {
 	case strings.Contains(stderr, "timed out") && !strings.Contains(stderr, "connection timed out"):
-		return "fetch timed out after " + fetchTimeout.String()
+		return ReasonFetchTimeout
 	case containsAny(stderr, "authentication failed", "permission denied", "could not read username", "could not read password", "terminal prompts disabled", "invalid username or password", "returned error: 401", "returned error: 403"):
-		return "fetch failed: auth"
+		return ReasonAuth
 	case containsAny(stderr, "repository not found", "does not appear to be a git repository", "returned error: 404"):
-		return "fetch failed: repo not found"
+		return ReasonNotFound
 	case containsAny(stderr, "could not resolve host", "connection refused", "connection timed out", "network is unreachable", "no route to host", "failed to connect", "could not read from remote repository"):
-		return "remote unreachable"
+		return ReasonUnreachable
 	case strings.Contains(stderr, "context canceled"):
-		return "fetch canceled"
+		return ReasonCanceled
 	}
-	return "fetch failed"
+	return ReasonFetchFailed
 }
 
 func statusReason(result git.Result) string {

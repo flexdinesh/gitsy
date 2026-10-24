@@ -36,6 +36,7 @@ func NewSession() *Session {
 			merge:   git.FastForwardToContext,
 			resolve: git.ResolveCommitContext,
 			merged:  git.MergedContext,
+			remotes: git.RemoteURLsContext,
 		},
 		fetchKey: git.FetchKeyContext,
 		baseRefs: git.BaseRefsContext,

@@ -82,6 +82,23 @@ func TestFindGitCandidatesFindsGitDirectoriesAndSkipsRoot(t *testing.T) {
 	}
 }
 
+func TestFindGitCandidatesExcludesNonGitDirectories(t *testing.T) {
+	dir := t.TempDir()
+	mkdir(t, filepath.Join(dir, "repo", ".git"))
+	mkdir(t, filepath.Join(dir, "notes", "docs"))
+	mkdir(t, filepath.Join(dir, "compose"))
+	writeFile(t, filepath.Join(dir, "compose", "compose.yml"), "services: {}\n")
+	mkdir(t, filepath.Join(dir, "empty"))
+
+	candidates, err := FindGitCandidates(dir, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := relativePaths(t, dir, candidates); !reflect.DeepEqual(got, []string{"repo"}) {
+		t.Fatalf("expected only [repo], got %#v", got)
+	}
+}
+
 func TestFindGitCandidatesFindsGitFiles(t *testing.T) {
 	dir := t.TempDir()
 	mkdir(t, filepath.Join(dir, "worktree"))

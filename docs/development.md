@@ -97,7 +97,7 @@ mise run demo
 mise run run -- --dir /tmp/gitsy-demo
 ```
 
-Re-run the script to reset fixture state (e.g. after `--sync`). It only resets
+Re-run the script to reset fixture state (e.g. after `--fast-forward`). It only resets
 directories carrying its `.gitsy-demo` ownership marker. Existing unmarked
 directories and symlink targets are rejected; choose a new path for older demos.
 

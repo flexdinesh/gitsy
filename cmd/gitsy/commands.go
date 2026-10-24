@@ -33,10 +33,9 @@ func runCommand(ctx context.Context, out console, workspace discover.Workspace, 
 			return ui.StatusSummary(workspace, results)
 		}, warn)
 	case args.CommandSync:
-		if options.FetchOnly {
-			return runInspection(ctx, out, workspace, inspect.NewSession(), false, false, ui.FetchSummary, warn)
-		}
 		return runInspection(ctx, out, workspace, inspect.NewSession(), false, true, ui.SyncSummary, warn)
+	case args.CommandFetch:
+		return runInspection(ctx, out, workspace, inspect.NewSession(), false, false, ui.FetchSummary, warn)
 	case args.CommandDeleteMerged:
 		return runDeleteMerged(ctx, out, workspace, options, warn)
 	}

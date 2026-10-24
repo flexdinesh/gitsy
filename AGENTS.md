@@ -2,7 +2,7 @@
 
 ## What This Repo Is
 
-`gitsy` is a small Go CLI that scans a directory for child Git repositories and linked worktrees, fetches upstream metadata by default, and shows a compact Bubble Tea status table. It is meant to make multi-repo workspaces easy to inspect and optionally fast-forward with `--sync`.
+`gitsy` is a small Go CLI that scans a directory for child Git repositories and linked worktrees, fetches upstream metadata by default, and shows a compact Bubble Tea status table. It is meant to make multi-repo workspaces easy to inspect and optionally fast-forward with `--fast-forward`.
 
 The main entry point is `cmd/gitsy/main.go`. Most behavior lives in focused internal packages:
 
@@ -41,7 +41,7 @@ mise run run
 # Try useful modes while developing.
 mise run run -- --no-fetch
 mise run run -- --verbose
-mise run run -- --sync
+mise run run -- --fast-forward
 
 # Keep module files tidy after dependency changes.
 mise run tidy
@@ -109,4 +109,4 @@ Only add new dependencies when they clearly reduce complexity or match the exist
 - Keep Lip Gloss styles close to the rendering code that uses them unless a style is shared enough to justify extraction.
 - Use `runewidth` or Bubble/Lip Gloss width helpers when aligning terminal text; do not assume byte length equals display width.
 - Be careful with Unicode symbols. They are fine for compact status output, but tests should cover exact strings and width-sensitive layout.
-- Always test TUI changes with small terminal sizes, empty results, loading rows, clean repos, changed repos, failed status, stale fetch, and `--sync` outcomes.
+- Always test TUI changes with small terminal sizes, empty results, loading rows, clean repos, changed repos, failed status, stale fetch, and `--fast-forward` outcomes.

@@ -80,6 +80,34 @@ func OriginURLContext(ctx context.Context, repoPath string) Result {
 	return RunContext(ctx, repoPath, "config", "--null", "--get", "remote.origin.url")
 }
 
+// RemoteURLsContext lists configured remote URLs; Git exits 1 when there are none.
+func RemoteURLsContext(ctx context.Context, repoPath string) Result {
+	return RunContext(ctx, repoPath, "config", "--null", "--get-regexp", `^remote\..*\.url$`)
+}
+
+// ParseRemoteURLs maps remote names to their first configured URL.
+func ParseRemoteURLs(output string) map[string]string {
+	urls := map[string]string{}
+	for _, entry := range strings.Split(output, "\x00") {
+		key, value, ok := strings.Cut(entry, "\n")
+		if !ok {
+			continue
+		}
+		name, ok := strings.CutPrefix(key, "remote.")
+		if !ok {
+			continue
+		}
+		name, ok = strings.CutSuffix(name, ".url")
+		if !ok || name == "" {
+			continue
+		}
+		if _, seen := urls[name]; !seen {
+			urls[name] = value
+		}
+	}
+	return urls
+}
+
 func ShortStatus(repoPath string) Result {
 	return ShortStatusContext(context.Background(), repoPath)
 }

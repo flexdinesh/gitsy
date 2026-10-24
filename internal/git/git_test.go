@@ -261,3 +261,26 @@ func TestFetchAllContextDoesNotPromptForHTTPCredentials(t *testing.T) {
 		t.Fatalf("expected noninteractive authentication failure, got %+v", result)
 	}
 }
+
+func TestRemoteURLsContextListsRemotes(t *testing.T) {
+	repo := t.TempDir()
+	mustFetchGit(t, repo, "init", "-q")
+	none := RemoteURLsContext(context.Background(), repo)
+	if none.OK || none.Status != 1 || len(ParseRemoteURLs(none.Stdout)) != 0 {
+		t.Fatalf("repo without remotes must exit 1 with no URLs: %+v", none)
+	}
+	mustFetchGit(t, repo, "remote", "add", "origin", "git@github.com:owner/repo.git")
+	mustFetchGit(t, repo, "remote", "add", "fork.name", "https://example.com/fork.git")
+	result := RemoteURLsContext(context.Background(), repo)
+	want := map[string]string{"origin": "git@github.com:owner/repo.git", "fork.name": "https://example.com/fork.git"}
+	if !result.OK || !reflect.DeepEqual(ParseRemoteURLs(result.Stdout), want) {
+		t.Fatalf("expected %v, got %+v", want, result)
+	}
+}
+
+func TestParseRemoteURLsKeepsFirstURLAndSkipsOtherKeys(t *testing.T) {
+	output := "remote.origin.url\na\x00remote.origin.url\nb\x00remote..url\nc\x00branch.main.url\nd\x00"
+	if got := ParseRemoteURLs(output); !reflect.DeepEqual(got, map[string]string{"origin": "a"}) {
+		t.Fatalf("unexpected URLs: %v", got)
+	}
+}
