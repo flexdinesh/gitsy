@@ -110,13 +110,13 @@ func TestDiscoversMultipleDirectoriesAndExternalWorktrees(t *testing.T) {
 		argv []string
 		deep bool
 	}{
-		{name: "absolute", argv: []string{"--dir", one, "--dir", two, "--max-depth", "1"}},
-		{name: "relative", argv: []string{"--dir", "org-one", "--dir=org-two", "--max-depth=1"}},
-		{name: "reversed", argv: []string{"--dir", two, "--dir", one, "--max-depth", "1"}},
-		{name: "repeated", argv: []string{"--dir", one, "--dir", two, "--dir", one, "--max-depth", "1"}},
-		{name: "overlapping", argv: []string{"--dir", one, "--dir", two, "--dir", repo, "--max-depth", "1"}},
-		{name: "symlink", argv: []string{"--dir", one, "--dir", two, "--dir", alias, "--max-depth", "1"}},
-		{name: "deeper", argv: []string{"--dir", one, "--dir", two, "--max-depth", "2"}, deep: true},
+		{name: "absolute", argv: []string{"--path", one, "--path", two, "--max-depth", "1"}},
+		{name: "relative", argv: []string{"--path", "org-one", "--path=org-two", "--max-depth=1"}},
+		{name: "reversed", argv: []string{"--path", two, "--path", one, "--max-depth", "1"}},
+		{name: "repeated", argv: []string{"--path", one, "--path", two, "--path", one, "--max-depth", "1"}},
+		{name: "overlapping", argv: []string{"--path", one, "--path", two, "--path", repo, "--max-depth", "1"}},
+		{name: "symlink", argv: []string{"--path", one, "--path", two, "--path", alias, "--max-depth", "1"}},
+		{name: "deeper", argv: []string{"--path", one, "--path", two, "--max-depth", "2"}, deep: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -124,7 +124,7 @@ func TestDiscoversMultipleDirectoriesAndExternalWorktrees(t *testing.T) {
 			if !parsed.OK {
 				t.Fatal(parsed.Err)
 			}
-			repos, err := discover.Discover(discover.Options{Cwd: home, Dirs: parsed.Options.Dirs, MaxDepth: parsed.Options.MaxDepth})
+			repos, err := discover.Discover(discover.Options{Cwd: home, Dirs: parsed.Options.Paths, MaxDepth: parsed.Options.MaxDepth})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -184,9 +184,9 @@ func TestDiscoverUsesSelectedDirectories(t *testing.T) {
 		want []string
 	}{
 		{name: "default", cwd: cwd, want: []string{defaultRepo}},
-		{name: "single directory", cwd: cwd, argv: []string{"--dir", one}, want: []string{firstRepo}},
-		{name: "multiple directories", cwd: cwd, argv: []string{"--dir", one, "--dir", two}, want: []string{firstRepo, secondRepo}},
-		{name: "current repo inside selected directory", cwd: firstRepo, argv: []string{"--dir", one, "--dir", two}, want: []string{firstRepo, secondRepo}},
+		{name: "single directory", cwd: cwd, argv: []string{"--path", one}, want: []string{firstRepo}},
+		{name: "multiple directories", cwd: cwd, argv: []string{"--path", one, "--path", two}, want: []string{firstRepo, secondRepo}},
+		{name: "current repo inside selected directory", cwd: firstRepo, argv: []string{"--path", one, "--path", two}, want: []string{firstRepo, secondRepo}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -194,7 +194,7 @@ func TestDiscoverUsesSelectedDirectories(t *testing.T) {
 			if !parsed.OK {
 				t.Fatal(parsed.Err)
 			}
-			repos, err := discover.Discover(discover.Options{Cwd: test.cwd, Dirs: parsed.Options.Dirs, MaxDepth: parsed.Options.MaxDepth})
+			repos, err := discover.Discover(discover.Options{Cwd: test.cwd, Dirs: parsed.Options.Paths, MaxDepth: parsed.Options.MaxDepth})
 			if err != nil {
 				t.Fatal(err)
 			}

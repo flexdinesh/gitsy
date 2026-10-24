@@ -421,7 +421,7 @@ func TestWorktreeViewsFitTerminals(t *testing.T) {
 				case "stale":
 					model.results[1].Stale = true
 				case "sync":
-					model.sync = true
+					model.results[1].Sync = &inspect.SyncOutcome{Kind: "synced", Pulled: 1}
 				case "locked":
 					model.results[1].Repo.Worktree.Locked = true
 				case "empty":

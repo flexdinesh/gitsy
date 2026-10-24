@@ -124,7 +124,7 @@ func run(argv []string) error {
 
 	workspace, err := discover.DiscoverGroupedContext(ctx, discover.Options{
 		Cwd:      cwd,
-		Dirs:     options.Dirs,
+		Dirs:     options.Paths,
 		MaxDepth: options.MaxDepth,
 		Verbose:  options.Verbose,
 		Warn:     warnings.Add,
@@ -142,8 +142,7 @@ func run(argv []string) error {
 	}
 
 	if options.Command == args.CommandTUI {
-		noFetch := options.NoFetch && !options.Sync
-		err = tui.Run(ctx, cancel, os.Stdout, workspace, noFetch, options.Sync, options.Base, processWarn)
+		err = tui.Run(ctx, cancel, os.Stdout, workspace, options.Base, processWarn)
 	} else {
 		err = runCommand(ctx, console{
 			stdin:    os.Stdin,

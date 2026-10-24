@@ -11,7 +11,6 @@ import (
 
 func TestInspectionProgressUpdatesUniqueAndDirectoryCounts(t *testing.T) {
 	model := groupedTestModel()
-	model.noFetch = false
 	assertProgress := func(want string, groups ...string) {
 		t.Helper()
 		if got := model.headerRight(); got != want {
@@ -29,56 +28,45 @@ func TestInspectionProgressUpdatesUniqueAndDirectoryCounts(t *testing.T) {
 			index++
 		}
 	}
-	assertProgress("fetch · 0/2 in progress", "0/2 repos", "0/1 repo", "0/0 repos")
+	assertProgress("0/2 in progress", "0/2 repos", "0/1 repo", "0/0 repos")
 	updated, _ := model.Update(repoDoneMsg{index: 0, result: inspect.Result{Repo: model.results[0].Repo, Failed: true}})
 	model = updated.(Model)
-	assertProgress("fetch · 1/2 in progress", "1/2 repos", "1/1 repo", "0/0 repos")
+	assertProgress("1/2 in progress", "1/2 repos", "1/1 repo", "0/0 repos")
 	updated, _ = model.Update(repoDoneMsg{index: 0, result: inspect.Result{Repo: model.results[0].Repo}})
 	model = updated.(Model)
-	assertProgress("fetch · 1/2 in progress", "1/2 repos", "1/1 repo", "0/0 repos")
+	assertProgress("1/2 in progress", "1/2 repos", "1/1 repo", "0/0 repos")
 	updated, _ = model.Update(repoDoneMsg{index: 1, result: inspect.Result{Repo: model.results[1].Repo, Stale: true, Sync: &inspect.SyncOutcome{Kind: "failed"}}})
 	model = updated.(Model)
-	assertProgress("fetch · 2/2 done", "2/2 repos", "1/1 repo", "0/0 repos")
+	assertProgress("2/2 done", "2/2 repos", "1/1 repo", "0/0 repos")
 }
 
-func TestProgressModesAndEmptyWorkspace(t *testing.T) {
-	for _, test := range []struct {
-		noFetch, sync bool
-		mode          string
-	}{
-		{false, false, "fetch"},
-		{true, false, "local"},
-		{false, true, "sync"},
-		{true, true, "sync"},
-	} {
-		model := NewModel(nil, test.noFetch, test.sync, nil)
-		if got, want := model.headerRight(), test.mode+" · 0/0 done"; got != want {
-			t.Fatalf("empty header = %q, want %q", got, want)
-		}
+func TestProgressEmptyWorkspace(t *testing.T) {
+	model := NewModel(nil, nil)
+	if got, want := model.headerRight(), "0/0 done"; got != want {
+		t.Fatalf("empty header = %q, want %q", got, want)
 	}
 }
 
 func TestWorktreeProgressFiltersSharedResults(t *testing.T) {
 	model := worktreeTestModel()
-	model.noFetch = false
 	model.results[0].Loading = true
 	model.results[1].Loading = true
 	model, _ = keyModel(model, "tab")
-	if got := model.headerRight(); got != "fetch · 0/1 in progress" {
+	if got := model.headerRight(); got != "0/1 in progress" {
 		t.Fatal(got)
 	}
 	updated, _ := model.Update(repoDoneMsg{index: 1, result: inspect.Result{Repo: model.results[1].Repo}})
 	model = updated.(Model)
-	if model.pending() != 1 || model.headerRight() != "fetch · 1/1 done" {
+	if model.pending() != 1 || model.headerRight() != "1/1 done" {
 		t.Fatal("worktree completion must exclude pending main checkout")
 	}
 	model.removed = map[string]bool{model.results[1].Repo.Path: true}
 	model.refresh()
-	if got := model.headerRight(); got != "fetch · 0/0 done" {
+	if got := model.headerRight(); got != "0/0 done" {
 		t.Fatal(got)
 	}
 	model, _ = keyModel(model, "tab")
-	if got := model.headerRight(); got != "fetch · 0/1 in progress" {
+	if got := model.headerRight(); got != "0/1 in progress" {
 		t.Fatal("removed worktree must leave both counters: " + got)
 	}
 }

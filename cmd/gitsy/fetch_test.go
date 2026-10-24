@@ -54,7 +54,7 @@ func TestPlainCommandSharesFetchWithinRunAndFetchesFreshNextRun(t *testing.T) {
 	t.Setenv("GIT_TRACE", trace)
 	for invocation := 1; invocation <= 2; invocation++ {
 		plainGit(t, origin, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "update")
-		stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--dir", root, "--dir", root)
+		stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--path", root, "--path", root)
 		if code != 0 || stderr != "" || !strings.Contains(stdout, "synced 1 commit") || !strings.Contains(stdout, "1 untracked") || !strings.Contains(stdout, linked) {
 			t.Fatalf("invocation %d must sync clean checkout and report dirty worktree: exit=%d stdout=%q stderr=%q", invocation, code, stdout, stderr)
 		}
@@ -75,7 +75,7 @@ func TestPlainCommandFetchesSeparateClonesOfSameRemote(t *testing.T) {
 	plainGit(t, origin, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "update")
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
-	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--dir", root)
+	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--path", root)
 	if code != 0 || stderr != "" || strings.Count(stdout, "synced 1 commit") != 2 || !strings.HasSuffix(stdout, "\nSynced 2 of 2 repos.\n") {
 		t.Fatalf("independent clones must both sync: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -99,7 +99,7 @@ func TestPlainCommandFailedSharedFetchSkipsSyncAgainstCachedUpstream(t *testing.
 	plainGit(t, clone, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing-remote"))
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
-	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--dir", root)
+	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--path", root)
 	if code != 1 || strings.Count(stdout, "· ⚠ remote repo not found") != 2 || strings.Contains(stdout, "skipped") || !strings.Contains(stdout, "↓1") || !strings.HasSuffix(stdout, "\nSynced 0 of 2 repos. 2 failed.\n") ||
 		!strings.Contains(stderr, clone+"): remote repo not found") || !strings.Contains(stderr, linked+"): remote repo not found") {
 		t.Fatalf("failed fetch must report cached status with its reason and skip both syncs: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -157,7 +157,7 @@ func TestPlainCommandFetchesEachWorktreeWhenSharingIsUnsafe(t *testing.T) {
 			test.configure(t, clone, linked, extra)
 			trace := filepath.Join(t.TempDir(), "git.trace")
 			t.Setenv("GIT_TRACE", trace)
-			stdout, stderr, code := plainCommand(t, "status", "--verbose", "--dir", root)
+			stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--path", root)
 			if code != 0 || stderr != "" || !strings.Contains(stdout, clone) || !strings.Contains(stdout, linked) {
 				t.Fatalf("checkout-specific fetching must succeed: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
@@ -185,7 +185,7 @@ func TestPlainCommandUnrelatedRemoteFailureSkipsSyncAfterUpstreamFetch(t *testin
 	plainGit(t, clone, "remote", "add", "unrelated", filepath.Join(t.TempDir(), "missing-remote"))
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
-	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--dir", root)
+	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--path", root)
 	if code != 1 || strings.Count(stdout, "· ⚠ remote repo not found") != 2 || strings.Contains(stdout, "skipped") || !strings.Contains(stderr, clone+"): remote repo not found") {
 		t.Fatalf("any remote failure must skip both syncs: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -215,7 +215,7 @@ func TestPlainCommandRelativeRemoteFetchesFromEachCheckout(t *testing.T) {
 	plainGit(t, publisher, "push", "-q", origin, "main")
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
-	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--dir", parentA)
+	stdout, stderr, code := plainCommand(t, "sync", "--verbose", "--path", parentA)
 	if code != 1 || strings.Count(stdout, "synced 1 commit") != 1 || strings.Count(stdout, "· ⚠ remote repo not found") != 1 || strings.Contains(stdout, "skipped") ||
 		!strings.Contains(stdout, "Synced 1 of 2 repos. 1 failed.") || !strings.Contains(stderr, linked+"): remote repo not found") || strings.Contains(stderr, clone+"):") {
 		t.Fatalf("relative URL must resolve independently for each checkout: exit=%d stdout=%q stderr=%q", code, stdout, stderr)

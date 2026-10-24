@@ -28,22 +28,16 @@ var errFailed = exitError{code: exitFailed}
 
 func runCommand(ctx context.Context, out console, workspace discover.Workspace, options args.Options, warn func(string)) error {
 	switch options.Command {
-	case args.CommandStatus:
-		return runInspection(ctx, out, workspace, inspect.NewSession(), options.NoFetch, false, func(results []inspect.Result) string {
-			return ui.StatusSummary(workspace, results)
-		}, warn)
 	case args.CommandSync:
-		return runInspection(ctx, out, workspace, inspect.NewSession(), false, true, ui.SyncSummary, warn)
-	case args.CommandFetch:
-		return runInspection(ctx, out, workspace, inspect.NewSession(), false, false, ui.FetchSummary, warn)
+		return runSync(ctx, out, workspace, warn)
 	case args.CommandDeleteMerged:
 		return runDeleteMerged(ctx, out, workspace, options, warn)
 	}
 	return fmt.Errorf("unsupported command: %s", options.Command)
 }
 
-func runInspection(ctx context.Context, out console, workspace discover.Workspace, session *inspect.Session, noFetch, syncRepos bool, summary func([]inspect.Result) string, warn func(string)) error {
-	results := session.ReposContext(ctx, workspace.Repos, noFetch, syncRepos, warn)
+func runSync(ctx context.Context, out console, workspace discover.Workspace, warn func(string)) error {
+	results := inspect.NewSession().ReposContext(ctx, workspace.Repos, true, warn)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -51,7 +45,7 @@ func runInspection(ctx context.Context, out console, workspace discover.Workspac
 		_, err := fmt.Fprintln(out.stdout, ui.EmptyMessage(0))
 		return err
 	}
-	report := summary(results) + "\n"
+	report := ui.SyncSummary(results) + "\n"
 	if out.verbose {
 		report = ui.PlainGroups(workspace, results) + report
 	}
@@ -90,7 +84,7 @@ func runDeleteMerged(ctx context.Context, out console, workspace discover.Worksp
 	session := inspect.NewSession()
 	session.DetectMerged = true
 	session.Base = options.Base
-	results := session.ReposContext(ctx, worktrees, options.NoFetch, false, warn)
+	results := session.ReposContext(ctx, worktrees, false, warn)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

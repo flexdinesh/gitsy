@@ -15,9 +15,9 @@ func TestRunRejectsInvalidScanRoots(t *testing.T) {
 	}
 	for _, root := range []string{filepath.Join(dir, "missing"), file} {
 		for _, argv := range [][]string{
-			{"--dir", root, "--no-fetch"},
-			{"--dir", root, "--dir", dir, "--no-fetch"},
-			{"--dir", dir, "--dir", root, "--no-fetch"},
+			{"--path", root},
+			{"--path", root, "--path", dir},
+			{"--path", dir, "--path", root},
 		} {
 			err := run(argv)
 			if err == nil || !strings.Contains(err.Error(), "read scan directory") {

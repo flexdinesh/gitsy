@@ -83,28 +83,19 @@ func TestBuildRowsShowsLoadingRepo(t *testing.T) {
 		DisplayName: "repo",
 		Source:      discover.SourceScan,
 	}
-	for _, test := range []struct {
-		fetching bool
-		want     string
-	}{
-		{false, "checking status…"},
-		{true, "fetching…"},
-	} {
-		rows := BuildRows([]RepoResult{{
-			Repo:     repo,
-			Loading:  true,
-			Fetching: test.fetching,
-		}})
+	rows := BuildRows([]RepoResult{{
+		Repo:    repo,
+		Loading: true,
+	}})
 
-		if len(rows) != 1 {
-			t.Fatalf("expected one loading row, got %d", len(rows))
-		}
-		if rows[0].Repo != "repo" || rows[0].Text != test.want {
-			t.Fatalf("expected loading row %q, got %#v", test.want, rows[0])
-		}
-		if compact := CompactSummary(RepoResult{Loading: true, Fetching: test.fetching}); compact != test.want {
-			t.Fatalf("compact loading must match regular wording: %q", compact)
-		}
+	if len(rows) != 1 {
+		t.Fatalf("expected one loading row, got %d", len(rows))
+	}
+	if rows[0].Repo != "repo" || rows[0].Text != "fetching…" {
+		t.Fatalf("expected loading row %q, got %#v", "fetching…", rows[0])
+	}
+	if compact := CompactSummary(RepoResult{Loading: true}); compact != "fetching…" {
+		t.Fatalf("compact loading must match regular wording: %q", compact)
 	}
 }
 

@@ -43,7 +43,7 @@ func NewSession() *Session {
 	}
 }
 
-func (session *Session) RepoContext(ctx context.Context, repo discover.Repo, noFetch, syncRepo bool, warn func(string)) Result {
+func (session *Session) RepoContext(ctx context.Context, repo discover.Repo, syncRepo bool, warn func(string)) Result {
 	commands := session.commands
 	commands.fetch = session.fetch
 	commands.baseRefs = nil
@@ -52,13 +52,13 @@ func (session *Session) RepoContext(ctx context.Context, repo discover.Repo, noF
 			return session.baseRefs(ctx, repoPath, session.Base)
 		}
 	}
-	return repoContext(ctx, repo, noFetch, syncRepo, warn, commands)
+	return repoContext(ctx, repo, syncRepo, warn, commands)
 }
 
 // ReposContext inspects repos concurrently, preserving their order in the results.
-func (session *Session) ReposContext(ctx context.Context, repos []discover.Repo, noFetch, syncRepos bool, warn func(string)) []Result {
+func (session *Session) ReposContext(ctx context.Context, repos []discover.Repo, syncRepos bool, warn func(string)) []Result {
 	return reposContext(ctx, repos, func(ctx context.Context, repo discover.Repo) Result {
-		return session.RepoContext(ctx, repo, noFetch, syncRepos, warn)
+		return session.RepoContext(ctx, repo, syncRepos, warn)
 	})
 }
 

@@ -34,7 +34,7 @@ Run `mise tasks` to list commands. Useful tasks:
 | `mise run fmt` | Format Go source |
 | `mise run tidy` | Tidy module files |
 | `mise run test:package ./internal/args` | Test a specific package |
-| `mise run run -- --no-fetch` | Run the CLI with arguments |
+| `mise run run -- --verbose` | Run the CLI with arguments |
 | `mise run demo /tmp/gitsy-demo-my-run` | Create a demo workspace |
 | `mise run hooks` | Reinstall Git hooks |
 | `mise run release:config` | Validate GoReleaser configuration |
@@ -94,10 +94,10 @@ See [GitHub's skip instructions](https://docs.github.com/en/actions/how-tos/mana
 mise run demo
 
 # Run the CLI against it.
-mise run run -- --dir /tmp/gitsy-demo
+mise run run -- --path /tmp/gitsy-demo
 ```
 
-Re-run the script to reset fixture state (e.g. after `--fast-forward`). It only resets
+Re-run the script to reset fixture state (e.g. after a run fast-forwards repos). It only resets
 directories carrying its `.gitsy-demo` ownership marker. Existing unmarked
 directories and symlink targets are rejected; choose a new path for older demos.
 
@@ -105,5 +105,5 @@ Pass a separate target for each concurrent run:
 
 ```bash
 mise run demo /tmp/gitsy-demo-my-run
-mise run run -- --dir /tmp/gitsy-demo-my-run
+mise run run -- --path /tmp/gitsy-demo-my-run
 ```

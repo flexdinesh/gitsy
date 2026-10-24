@@ -14,20 +14,20 @@ func TestParseReturnsDefaults(t *testing.T) {
 	if result.Options.MaxDepth != 3 {
 		t.Fatalf("expected MaxDepth 3, got %d", result.Options.MaxDepth)
 	}
-	if !reflect.DeepEqual(result.Options.Dirs, []string{"/cwd"}) {
-		t.Fatalf("expected Dirs [/cwd], got %v", result.Options.Dirs)
+	if !reflect.DeepEqual(result.Options.Paths, []string{"/cwd"}) {
+		t.Fatalf("expected Paths [/cwd], got %v", result.Options.Paths)
 	}
-	if result.Options.Command != CommandTUI || result.Options.Verbose || result.Options.NoFetch || result.Options.Sync || result.Options.Yes || result.Options.Help || result.Options.Version {
+	if result.Options.Command != CommandTUI || result.Options.Verbose || result.Options.Yes || result.Options.Help || result.Options.Version {
 		t.Fatalf("expected boolean flags to default false: %+v", result.Options)
 	}
 }
 
 func TestParseSupportsFlags(t *testing.T) {
-	result := Parse([]string{"--verbose", "--no-fetch", "--fast-forward", "--help", "--version"}, "/cwd")
+	result := Parse([]string{"--verbose", "--help", "--version"}, "/cwd")
 	if !result.OK {
 		t.Fatalf("Parse returned error: %v", result.Err)
 	}
-	if !result.Options.Verbose || !result.Options.NoFetch || !result.Options.Sync || !result.Options.Help || !result.Options.Version {
+	if !result.Options.Verbose || !result.Options.Help || !result.Options.Version {
 		t.Fatalf("expected all flags true: %+v", result.Options)
 	}
 }
@@ -63,15 +63,15 @@ func TestParseRejectsInvalidMaxDepth(t *testing.T) {
 	}
 }
 
-func TestParseSupportsDir(t *testing.T) {
+func TestParseSupportsPath(t *testing.T) {
 	tests := []struct {
 		argv []string
 		want []string
 	}{
-		{argv: []string{"--dir", "/some/path"}, want: []string{"/some/path"}},
-		{argv: []string{"--dir=/another/path"}, want: []string{"/another/path"}},
-		{argv: []string{"--dir", "/one", "--dir", "/two"}, want: []string{"/one", "/two"}},
-		{argv: []string{"--dir=/one", "--no-fetch", "--dir", "two", "--max-depth", "2"}, want: []string{"/one", "two"}},
+		{argv: []string{"--path", "/some/path"}, want: []string{"/some/path"}},
+		{argv: []string{"--path=/another/path"}, want: []string{"/another/path"}},
+		{argv: []string{"--path", "/one", "--path", "/two"}, want: []string{"/one", "/two"}},
+		{argv: []string{"--path=/one", "--verbose", "--path", "two", "--max-depth", "2"}, want: []string{"/one", "two"}},
 	}
 
 	for _, test := range tests {
@@ -79,14 +79,14 @@ func TestParseSupportsDir(t *testing.T) {
 		if !result.OK {
 			t.Fatalf("Parse returned error: %v", result.Err)
 		}
-		if !reflect.DeepEqual(result.Options.Dirs, test.want) {
-			t.Fatalf("expected Dirs %v, got %v", test.want, result.Options.Dirs)
+		if !reflect.DeepEqual(result.Options.Paths, test.want) {
+			t.Fatalf("expected Paths %v, got %v", test.want, result.Options.Paths)
 		}
 	}
 }
 
-func TestParseRejectsMissingDir(t *testing.T) {
-	for _, argv := range [][]string{{"--dir"}, {"--dir", "--verbose"}, {"--dir="}, {"--dir", "/one", "--dir"}, {"--dir=/one", "--dir="}} {
+func TestParseRejectsMissingPath(t *testing.T) {
+	for _, argv := range [][]string{{"--path"}, {"--path", "--verbose"}, {"--path="}, {"--path", "/one", "--path"}, {"--path=/one", "--path="}} {
 		if Parse(argv, "/cwd").OK {
 			t.Fatalf("expected Parse(%v) to fail", argv)
 		}
@@ -94,7 +94,7 @@ func TestParseRejectsMissingDir(t *testing.T) {
 }
 
 func TestParseRejectsUnknownArgs(t *testing.T) {
-	for _, argv := range [][]string{{"--raw"}, {"--all"}, {"--non-interactive"}, {"-x"}} {
+	for _, argv := range [][]string{{"--raw"}, {"--all"}, {"--non-interactive"}, {"-x"}, {"--no-fetch"}, {"--fast-forward"}, {"--dir", "/one"}, {"--dir=/one"}} {
 		if Parse(argv, "/cwd").OK {
 			t.Fatalf("expected Parse(%v) to fail", argv)
 		}
@@ -134,17 +134,13 @@ func TestParseCommands(t *testing.T) {
 		argv    []string
 		command Command
 		yes     bool
-		dirs    []string
+		paths   []string
 	}{
-		{argv: []string{"status"}, command: CommandStatus, dirs: []string{"/cwd"}},
-		{argv: []string{"--dir", "/ws", "status", "--no-fetch"}, command: CommandStatus, dirs: []string{"/ws"}},
-		{argv: []string{"sync"}, command: CommandSync, dirs: []string{"/cwd"}},
-		{argv: []string{"fetch"}, command: CommandFetch, dirs: []string{"/cwd"}},
-		{argv: []string{"--dir", "/ws", "fetch", "--verbose"}, command: CommandFetch, dirs: []string{"/ws"}},
-		{argv: []string{"sync", "--dir=/one", "--verbose"}, command: CommandSync, dirs: []string{"/one"}},
-		{argv: []string{"worktree", "delete-merged"}, command: CommandDeleteMerged, dirs: []string{"/cwd"}},
-		{argv: []string{"--dir", "/ws", "worktree", "delete-merged", "-y"}, command: CommandDeleteMerged, yes: true, dirs: []string{"/ws"}},
-		{argv: []string{"worktree", "--yes", "delete-merged", "--no-fetch", "--base", "main"}, command: CommandDeleteMerged, yes: true, dirs: []string{"/cwd"}},
+		{argv: []string{"sync"}, command: CommandSync, paths: []string{"/cwd"}},
+		{argv: []string{"sync", "--path=/one", "--verbose"}, command: CommandSync, paths: []string{"/one"}},
+		{argv: []string{"worktree", "delete-merged"}, command: CommandDeleteMerged, paths: []string{"/cwd"}},
+		{argv: []string{"--path", "/ws", "worktree", "delete-merged", "-y"}, command: CommandDeleteMerged, yes: true, paths: []string{"/ws"}},
+		{argv: []string{"worktree", "--yes", "delete-merged", "--base", "main"}, command: CommandDeleteMerged, yes: true, paths: []string{"/cwd"}},
 	} {
 		t.Run(strings.Join(test.argv, " "), func(t *testing.T) {
 			result := Parse(test.argv, "/cwd")
@@ -152,7 +148,7 @@ func TestParseCommands(t *testing.T) {
 				t.Fatalf("Parse returned error: %v", result.Err)
 			}
 			options := result.Options
-			if options.Command != test.command || options.Yes != test.yes || !reflect.DeepEqual(options.Dirs, test.dirs) {
+			if options.Command != test.command || options.Yes != test.yes || !reflect.DeepEqual(options.Paths, test.paths) {
 				t.Fatalf("unexpected options: %+v", options)
 			}
 		})
@@ -165,21 +161,20 @@ func TestParseRejectsInvalidCommands(t *testing.T) {
 		want string
 	}{
 		{argv: []string{"stats"}, want: "Unknown command: stats"},
-		{argv: []string{"status", "extra"}, want: "Unknown argument: extra"},
+		{argv: []string{"status"}, want: "Unknown command: status"},
+		{argv: []string{"fetch"}, want: "Unknown command: fetch"},
 		{argv: []string{"sync", "now"}, want: "Unknown argument: now"},
 		{argv: []string{"worktree"}, want: "Missing worktree command (expected delete-merged)"},
 		{argv: []string{"worktree", "prune"}, want: "Unknown worktree command: prune"},
 		{argv: []string{"worktree", "delete-merged", "all"}, want: "Unknown argument: all"},
-		{argv: []string{"fetch", "now"}, want: "Unknown argument: now"},
 		{argv: []string{"--fetch-only"}, want: "Unknown argument: --fetch-only"},
 		{argv: []string{"sync", "--fetch-only"}, want: "Unknown argument: --fetch-only"},
 		{argv: []string{"--sync"}, want: "Unknown argument: --sync"},
 		{argv: []string{"-y"}, want: "-y only applies to gitsy worktree delete-merged"},
 		{argv: []string{"sync", "--yes"}, want: "-y only applies to gitsy worktree delete-merged"},
-		{argv: []string{"status", "--fast-forward"}, want: "--fast-forward only applies to the TUI; use gitsy sync"},
-		{argv: []string{"fetch", "--fast-forward"}, want: "--fast-forward only applies to the TUI; use gitsy sync"},
-		{argv: []string{"sync", "--no-fetch"}, want: "--no-fetch cannot be used with gitsy sync; sync always fetches"},
-		{argv: []string{"fetch", "--no-fetch"}, want: "--no-fetch cannot be used with gitsy fetch"},
+		{argv: []string{"--no-fetch"}, want: "Unknown argument: --no-fetch"},
+		{argv: []string{"--fast-forward"}, want: "Unknown argument: --fast-forward"},
+		{argv: []string{"sync", "--dir", "/ws"}, want: "Unknown argument: --dir"},
 	} {
 		t.Run(strings.Join(test.argv, " "), func(t *testing.T) {
 			result := Parse(test.argv, "/cwd")
@@ -191,12 +186,12 @@ func TestParseRejectsInvalidCommands(t *testing.T) {
 }
 
 func TestUsageDocumentsCommandsAndExitCodes(t *testing.T) {
-	for _, removed := range []string{"--non-interactive", "--sync", "--fetch-only"} {
+	for _, removed := range []string{"--non-interactive", "--sync", "--fetch-only", "--no-fetch", "--fast-forward", "--dir", "  status ", "  fetch "} {
 		if strings.Contains(Usage, removed) {
 			t.Fatalf("usage must not document removed %s flag", removed)
 		}
 	}
-	for _, want := range []string{"Usage: gitsy [options] [command]", "  status ", "  sync ", "  fetch ", "--fast-forward", "  worktree delete-merged ", "-y, --yes", "Exit codes:", "  0 ", "  1 ", "  2 ", "  130 "} {
+	for _, want := range []string{"Usage: gitsy [options] [command]", "  sync ", "--path <path>", "  worktree delete-merged ", "-y, --yes", "Exit codes:", "  0 ", "  1 ", "  2 ", "  130 "} {
 		if !strings.Contains(Usage, want) {
 			t.Fatalf("usage must document %q", want)
 		}

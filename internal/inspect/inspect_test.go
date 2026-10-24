@@ -18,7 +18,6 @@ func TestRepoOutcomes(t *testing.T) {
 	failure := git.Result{Stderr: "command failed", Status: 1}
 	for _, test := range []struct {
 		name        string
-		noFetch     bool
 		sync        bool
 		before      string
 		fetchFails  bool
@@ -33,13 +32,13 @@ func TestRepoOutcomes(t *testing.T) {
 		wantSync    string
 		wantWarning string
 	}{
-		{name: "local clean", noFetch: true, before: clean},
+		{name: "clean", before: clean},
 		{name: "fetch failure", before: clean, fetchFails: true, wantStale: true, wantWarning: "Fetch failed"},
 		{name: "sync fetch failure", sync: true, before: behind, fetchFails: true, wantStale: true, wantWarning: "Fetch failed"},
 		{name: "clean sync fetch failure", sync: true, before: clean, fetchFails: true, wantStale: true, wantWarning: "Fetch failed"},
 		{name: "sync fetch and status failure", sync: true, fetchFails: true, statusFails: true, wantFailed: true, wantStale: true, wantWarning: "Fetch failed"},
 		{name: "status failure", statusFails: true, wantFailed: true, wantWarning: "Failed to read status"},
-		{name: "sync always fetches", noFetch: true, sync: true, before: behind, wantSync: "synced"},
+		{name: "sync", sync: true, before: behind, wantSync: "synced"},
 		{name: "dirty skipped", sync: true, before: behind + " M file.go\n"},
 		{name: "untracked skipped", sync: true, before: behind + "?? file.go\n"},
 		{name: "diverged skipped", sync: true, before: "## main...origin/main [ahead 1, behind 2]\n"},
@@ -96,7 +95,7 @@ func TestRepoOutcomes(t *testing.T) {
 				},
 			}
 			warnings := []string{}
-			got := repoContext(context.Background(), discover.Repo{Path: "/repo", DisplayName: "repo"}, test.noFetch, test.sync, func(message string) {
+			got := repoContext(context.Background(), discover.Repo{Path: "/repo", DisplayName: "repo"}, test.sync, func(message string) {
 				warnings = append(warnings, message)
 			}, commands)
 			if got.Failed != test.wantFailed || got.Stale != test.wantStale {
@@ -118,8 +117,8 @@ func TestRepoOutcomes(t *testing.T) {
 			if test.wantSync == "" && merged {
 				t.Fatal("ineligible repo must never be merged")
 			}
-			if fetched != (!test.noFetch || test.sync) {
-				t.Fatal("fetch must respect local mode and sync requirements")
+			if !fetched {
+				t.Fatal("inspection must always fetch")
 			}
 			if test.wantWarning != "" && !strings.Contains(strings.Join(warnings, "\n"), test.wantWarning) {
 				t.Fatalf("expected warning %q, got %v", test.wantWarning, warnings)
@@ -134,7 +133,7 @@ func TestRepoOutcomes(t *testing.T) {
 func TestRepoContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	got := RepoContext(ctx, discover.Repo{Path: t.TempDir(), DisplayName: "repo"}, false, true, nil)
+	got := RepoContext(ctx, discover.Repo{Path: t.TempDir(), DisplayName: "repo"}, true, nil)
 	if !got.Failed || !got.Stale || got.Sync != nil {
 		t.Fatalf("canceled inspection must fail without syncing: %+v", got)
 	}
@@ -172,7 +171,7 @@ func TestRepoSyncOverridesSquashAndAdvancesHead(t *testing.T) {
 			if mergeOptions != "" {
 				runGit(clone, "config", "branch.main.mergeoptions", mergeOptions)
 			}
-			got := RepoContext(context.Background(), discover.Repo{Path: clone, DisplayName: "clone"}, true, true, nil)
+			got := RepoContext(context.Background(), discover.Repo{Path: clone, DisplayName: "clone"}, true, nil)
 			head := git.ResolveCommitContext(context.Background(), clone, "HEAD")
 			target := git.ResolveCommitContext(context.Background(), origin, "HEAD")
 			if got.Failed || got.Stale || got.Sync == nil || got.Sync.Kind != "synced" || got.Sync.Pulled != 1 ||
@@ -261,7 +260,7 @@ func TestRepoReasonsFollowPriority(t *testing.T) {
 					return git.Result{OK: true, Stdout: "commit\n"}
 				},
 			}
-			got := repoContext(context.Background(), discover.Repo{Path: "/repo"}, false, test.sync, nil, commands)
+			got := repoContext(context.Background(), discover.Repo{Path: "/repo"}, test.sync, nil, commands)
 			if got.Reason != test.want {
 				t.Fatalf("reason = %q, want %q", got.Reason, test.want)
 			}
@@ -292,7 +291,7 @@ func TestRepoReportsRemotes(t *testing.T) {
 				commands.remotes = func(context.Context, string) git.Result { return test.result }
 			}
 			warnings := []string{}
-			got := repoContext(context.Background(), discover.Repo{Path: "/repo", DisplayName: "repo"}, true, false, func(message string) {
+			got := repoContext(context.Background(), discover.Repo{Path: "/repo", DisplayName: "repo"}, false, func(message string) {
 				warnings = append(warnings, message)
 			}, commands)
 			if got.Remotes != test.want || (len(warnings) > 0) != test.warned {

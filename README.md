@@ -1,6 +1,6 @@
 # gitsy
 
-gitsy is a tiny CLI that scans a directory for git repositories and linked worktrees, automatically fetches from upstream, and optionally fast-forwards local branches with `--fast-forward`. It displays status in a nice TUI so you can see what needs attention.
+gitsy is a tiny CLI that scans a directory for git repositories and linked worktrees, automatically fetches from upstream, and fast-forwards local branches that can safely update. It displays status in a nice TUI so you can see what needs attention.
 
 ![gitsy demo](assets/gitsy-demo.gif)
 
@@ -17,36 +17,25 @@ go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 ## Usage
 
 ```bash
-# Show all discovered repositories under the current directory.
+# Show all discovered repositories under the current directory, fetch, and
+# fast-forward repositories that can safely update without conflicts.
 gitsy
 
-# Fast-forward repositories that can safely update without conflicts.
-gitsy --fast-forward
-
-# Print a status summary and exit; add --verbose for a per-repo report.
-gitsy status
-
 # Fast-forward safely without opening the TUI, print a summary, and exit.
-gitsy --dir ~/workspace sync
-
-# Fetch all remotes without updating local branches.
-gitsy --dir ~/workspace fetch
+gitsy --path ~/workspace sync
 
 # Delete all merged linked worktrees after confirming; -y skips the prompt.
-gitsy --dir ~/workspace worktree delete-merged
-gitsy --dir ~/workspace worktree delete-merged -y
+gitsy --path ~/workspace worktree delete-merged
+gitsy --path ~/workspace worktree delete-merged -y
 
 # Scan repository directories up to a specific nested depth.
 gitsy --max-depth 5
 
 # Start scanning from a specific directory instead of the current directory.
-gitsy --dir ~/workspace
+gitsy --path ~/workspace
 
 # Scan multiple directories and include their repositories' linked worktrees.
-gitsy --dir ~/workspace/org-one --dir ~/workspace/org-two
-
-# Skip fetching upstream changes and use local status only.
-gitsy --no-fetch
+gitsy --path ~/workspace/org-one --path ~/workspace/org-two
 
 # Print warnings for skipped repos and failed git commands.
 gitsy --verbose
@@ -63,7 +52,7 @@ select rows, `f` to toggle file details,
 `PgUp/PgDn` or the mouse wheel to scroll, and `q` to quit. Wide terminals
 show context for the selected repository. Colors adapt to light and dark themes.
 
-By default, each invocation runs `git fetch --all` for fresh upstream state;
+Each invocation runs `git fetch --all` for fresh upstream state;
 nothing is cached between invocations. Within a run, main checkouts and linked
 worktrees sharing a Git common directory share one fetch when safe. Separate
 clones fetch independently, even with the same remote URL. Repositories with
@@ -73,7 +62,7 @@ commands fetch per checkout to preserve their existing behavior. Checkout-relati
 validation, and bundle paths also disable sharing. Status and sync remain
 independent for each checkout.
 
-`--fast-forward` and `gitsy sync` always fetch; `--fast-forward` ignores `--no-fetch`. Only
+The TUI and `gitsy sync` fast-forward after fetching. Only
 clean branches with an upstream, commits behind, and no commits ahead can
 fast-forward. If any remote
 fails to fetch, sync is skipped for that checkout, including failures from
@@ -82,12 +71,12 @@ as `main ✓ clean · ⚠ remote auth needed`, and the context rail suggests a f
 Repositories without remotes show `local only`; branches without an upstream
 show `no upstream`.
 
-With `--dir`, only the supplied directories are scanned. `--max-depth` applies
+With `--path`, only the supplied directories are scanned. `--max-depth` applies
 to each directory; linked worktrees are included wherever they live. Relative
 paths resolve from the current directory.
 
-Repositories are grouped by scan directory, in the order `--dir` is supplied.
-Without `--dir`, the current directory is the group. Groups stay expanded;
+Repositories are grouped by scan directory, in the order `--path` is supplied.
+Without `--path`, the current directory is the group. Groups stay expanded;
 navigation skips directory headers. Repositories found through overlapping
 directories appear in each group, while status and sync run once per unique
 checkout. Fetches are shared across eligible linked worktrees as described above.
@@ -109,14 +98,12 @@ directory name when unavailable. Full paths appear in the sidebar.
 
 ## Commands
 
-Commands run without the TUI and exit. Options such as `--dir`, `--max-depth`,
-`--no-fetch`, `--base`, and `--verbose` may appear before or after the command.
+Commands run without the TUI and exit. Options such as `--path`, `--max-depth`,
+`--base`, and `--verbose` may appear before or after the command.
 
 | Command | Does | Prints |
 | --- | --- | --- |
-| `gitsy status` | Fetches (unless `--no-fetch`) and reads status | `gitsy · 6 repos · 1 behind · 2 changed` |
 | `gitsy sync` | Fetches and fast-forwards safe repos | `Synced 2 of 6 repos. 3 up to date, 1 failed.` |
-| `gitsy fetch` | Fetches without touching local branches | `Fetched 5 of 6 repos. 1 failed.` |
 | `gitsy worktree delete-merged` | Force deletes merged linked worktrees; keeps branches | `Deleted 2 merged worktrees. Branches kept.` |
 
 Each command prints one summary line on stdout and one line per failed

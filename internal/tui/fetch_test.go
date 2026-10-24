@@ -45,7 +45,7 @@ func TestModelSharesFetchAcrossInspectionBatchesAndFetchesFreshNextRun(t *testin
 	t.Setenv("GIT_TRACE", trace)
 	for invocation := 1; invocation <= 2; invocation++ {
 		commit()
-		model := NewModel(repos, false, true, nil)
+		model := NewModel(repos, nil)
 		commands := []tea.Cmd{model.Init()}
 		for len(commands) > 0 {
 			command := commands[0]
