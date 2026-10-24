@@ -12,22 +12,19 @@ const Usage = `Usage: gitsy [options] [command]
 
 Show git status across child repositories and linked worktrees.
 Fetch all remotes fresh every run; linked worktrees share fetching when safe.
+Fast-forward repos that can safely update without conflicts.
 Fast-forward skips repos if fetching fails, including failures from unrelated remotes.
 Without a command, gitsy opens the TUI.
 
 Commands:
-  status                     Print a status summary and exit
-  sync                       Fast-forward repos that can safely update without conflicts (always fetches)
-  fetch                      Fetch remotes without updating local branches
+  sync                       Fast-forward safe repos without the TUI, print a summary, and exit
   worktree delete-merged     Delete all merged linked worktrees; confirms first, keeps branches
     -y, --yes                Delete without confirming
 
 Options:
   --max-depth <n>    Scan repository directories up to n nested levels (default: 3)
-  --dir <path>       Scan <path> instead of the current directory (repeatable)
+  --path <path>      Scan <path> instead of the current directory (repeatable)
   --verbose          Print per-repo details and warnings for failed git commands
-  --no-fetch         Skip fetching upstream changes (use local status only)
-  --fast-forward     Open the TUI and fast-forward repos that can safely update (always fetches)
   --base <branch>    Default branch for merged worktrees (default: gitsy.base config, then origin/HEAD)
   --help             Show this help message
   --version          Show package version
@@ -48,9 +45,7 @@ type Command string
 
 const (
 	CommandTUI          Command = ""
-	CommandStatus       Command = "status"
 	CommandSync         Command = "sync"
-	CommandFetch        Command = "fetch"
 	CommandDeleteMerged Command = "worktree delete-merged"
 )
 
@@ -58,11 +53,9 @@ type Options struct {
 	Command  Command
 	MaxDepth int
 	Verbose  bool
-	NoFetch  bool
-	Sync     bool
 	Yes      bool
 	Base     string
-	Dirs     []string
+	Paths    []string
 	Help     bool
 	Version  bool
 }
@@ -87,29 +80,25 @@ func Parse(argv []string, cwd string) ParseResult {
 			continue
 		case arg == "--verbose":
 			options.Verbose = true
-		case arg == "--no-fetch":
-			options.NoFetch = true
-		case arg == "--fast-forward":
-			options.Sync = true
 		case arg == "-y" || arg == "--yes":
 			options.Yes = true
 		case arg == "--help":
 			options.Help = true
 		case arg == "--version":
 			options.Version = true
-		case arg == "--dir":
+		case arg == "--path":
 			value, ok := nextValue(argv, index)
 			if !ok {
-				return parseError("Missing value for --dir")
+				return parseError("Missing value for --path")
 			}
-			options.Dirs = append(options.Dirs, value)
+			options.Paths = append(options.Paths, value)
 			index++
-		case strings.HasPrefix(arg, "--dir="):
-			value := strings.TrimPrefix(arg, "--dir=")
+		case strings.HasPrefix(arg, "--path="):
+			value := strings.TrimPrefix(arg, "--path=")
 			if value == "" {
-				return parseError("Missing value for --dir")
+				return parseError("Missing value for --path")
 			}
-			options.Dirs = append(options.Dirs, value)
+			options.Paths = append(options.Paths, value)
 		case arg == "--base":
 			value, ok := nextValue(argv, index)
 			if !ok {
@@ -157,8 +146,8 @@ func Parse(argv []string, cwd string) ParseResult {
 		return ParseResult{OK: false, Err: err}
 	}
 
-	if len(options.Dirs) == 0 {
-		options.Dirs = []string{cwd}
+	if len(options.Paths) == 0 {
+		options.Paths = []string{cwd}
 	}
 	return ParseResult{OK: true, Options: options}
 }
@@ -168,11 +157,11 @@ func parseCommand(words []string) (Command, error) {
 		return CommandTUI, nil
 	}
 	switch words[0] {
-	case "status", "sync", "fetch":
+	case "sync":
 		if len(words) > 1 {
 			return "", fmt.Errorf("Unknown argument: %s", words[1])
 		}
-		return Command(words[0]), nil
+		return CommandSync, nil
 	case "worktree":
 		if len(words) == 1 {
 			return "", fmt.Errorf("Missing worktree command (expected delete-merged)")
@@ -189,15 +178,8 @@ func parseCommand(words []string) (Command, error) {
 }
 
 func validate(options Options) error {
-	switch {
-	case options.Sync && options.Command != CommandTUI:
-		return fmt.Errorf("--fast-forward only applies to the TUI; use gitsy sync")
-	case options.Yes && options.Command != CommandDeleteMerged:
+	if options.Yes && options.Command != CommandDeleteMerged {
 		return fmt.Errorf("-y only applies to gitsy worktree delete-merged")
-	case options.NoFetch && options.Command == CommandSync:
-		return fmt.Errorf("--no-fetch cannot be used with gitsy sync; sync always fetches")
-	case options.NoFetch && options.Command == CommandFetch:
-		return fmt.Errorf("--no-fetch cannot be used with gitsy fetch")
 	}
 	return nil
 }

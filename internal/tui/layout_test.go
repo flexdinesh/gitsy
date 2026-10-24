@@ -120,7 +120,6 @@ func TestFetchFailureExplainsReasonAcrossLayouts(t *testing.T) {
 		t.Run(fmt.Sprintf("width-%d", width), func(t *testing.T) {
 			model := newTestModel(testRepos("repo"))
 			model.width, model.height = width, 24
-			model.noFetch, model.sync = false, true
 			updated, _ := model.Update(repoDoneMsg{
 				index: 0,
 				result: inspect.Result{

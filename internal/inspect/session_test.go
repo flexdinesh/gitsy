@@ -45,7 +45,7 @@ func TestSessionSharesConcurrentAndCompletedFetchResults(t *testing.T) {
 			var workers sync.WaitGroup
 			for index := range results {
 				workers.Go(func() {
-					results[index] = session.RepoContext(ctx, discover.Repo{Path: string(rune('a' + index))}, false, false, nil)
+					results[index] = session.RepoContext(ctx, discover.Repo{Path: string(rune('a' + index))}, false, nil)
 				})
 			}
 			waitBatchSignal(t, ctx, started)
@@ -62,7 +62,7 @@ func TestSessionSharesConcurrentAndCompletedFetchResults(t *testing.T) {
 					t.Fatalf("each checkout needs its own status and shared fetch outcome: %+v", result)
 				}
 			}
-			session.RepoContext(ctx, discover.Repo{Path: "later"}, false, false, nil)
+			session.RepoContext(ctx, discover.Repo{Path: "later"}, false, nil)
 			if fetches.Load() != 1 || statuses.Load() != 9 {
 				t.Fatalf("got %d fetches and %d statuses", fetches.Load(), statuses.Load())
 			}
@@ -120,24 +120,6 @@ func TestSessionFetchWaitingCanBeCanceled(t *testing.T) {
 	}
 	if result := session.fetch(ctx, "later", time.Second); !result.OK || fetches.Load() != 1 {
 		t.Fatal("waiter cancellation must not discard the shared result")
-	}
-}
-
-func TestSessionLocalModeSkipsFetchPreparation(t *testing.T) {
-	session := NewSession()
-	session.fetchKey = func(context.Context, string) string {
-		t.Fatal("local mode must not prepare a fetch")
-		return ""
-	}
-	session.commands.fetch = func(context.Context, string, time.Duration) git.Result {
-		t.Fatal("local mode must not fetch")
-		return git.Result{}
-	}
-	session.commands.status = func(context.Context, string) git.Result {
-		return git.Result{OK: true, Stdout: "## main\n"}
-	}
-	if result := session.RepoContext(nil, discover.Repo{Path: "main"}, true, false, nil); result.Failed || result.Stale {
-		t.Fatalf("local inspection failed: %+v", result)
 	}
 }
 
@@ -223,7 +205,7 @@ func TestSessionMergedDetection(t *testing.T) {
 				return "origin/develop", git.Result{OK: true}
 			}
 			warnings := []string{}
-			got := session.RepoContext(context.Background(), test.repo, false, test.sync, func(message string) {
+			got := session.RepoContext(context.Background(), test.repo, test.sync, func(message string) {
 				warnings = append(warnings, message)
 			})
 			if got.MergedInto != test.want || !reflect.DeepEqual(calls, test.wantCalls) {

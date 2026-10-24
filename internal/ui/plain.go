@@ -9,22 +9,6 @@ import (
 	"github.com/flexdinesh/gitsy/internal/inspect"
 )
 
-// PlainReport renders completed inspections in discovery order without file details.
-func PlainReport(workspace discover.Workspace, results []inspect.Result) string {
-	if len(workspace.Repos) == 0 {
-		return EmptyMessage(0) + "\n"
-	}
-	return PlainGroups(workspace, results) + StatusSummary(workspace, results) + "\n"
-}
-
-// StatusSummary is the one-line status count summary shown after a scan.
-func StatusSummary(workspace discover.Workspace, results []inspect.Result) string {
-	if len(workspace.Repos) == 0 {
-		return EmptyMessage(0)
-	}
-	return Title(plainResults(workspace, results), len(workspace.Repos))
-}
-
 func plainResults(workspace discover.Workspace, results []inspect.Result) []RepoResult {
 	repoResults := make([]RepoResult, len(results))
 	for index, result := range results {
@@ -101,17 +85,6 @@ func SyncSummary(results []inspect.Result) string {
 		}
 	}
 	return outcomeSummary(fmt.Sprintf("Synced %d of %s.", synced, Count(len(results), "repo")), map[string]int{"up to date": current, "skipped": skipped, "failed": failed}, "up to date", "skipped", "failed")
-}
-
-// FetchSummary counts repositories whose remotes all fetched.
-func FetchSummary(results []inspect.Result) string {
-	failed := 0
-	for _, result := range results {
-		if result.Stale {
-			failed++
-		}
-	}
-	return outcomeSummary(fmt.Sprintf("Fetched %d of %s.", len(results)-failed, Count(len(results), "repo")), map[string]int{"failed": failed}, "failed")
 }
 
 // DeletionSummary reports bulk merged worktree deletion; detail follows the failed count.

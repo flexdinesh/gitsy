@@ -70,7 +70,7 @@ func commit(t *testing.T, repo, message string) {
 	plainGit(t, repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", message)
 }
 
-func TestStatusCommandSummarizesAndReportsWithVerbose(t *testing.T) {
+func TestSyncCommandSummarizesAndReportsWithVerbose(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
 	linked := filepath.Join(t.TempDir(), "linked")
@@ -80,15 +80,15 @@ func TestStatusCommandSummarizesAndReportsWithVerbose(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(linked, "hidden-filename.txt"), []byte("change"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, code := plainCommand(t, "--no-fetch", "--dir", root, "status")
-	if code != 0 || stderr != "" || stdout != "gitsy · 2 repos · 1 changed\n" {
-		t.Fatalf("status must print only a summary by default: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	stdout, stderr, code := plainCommand(t, "--path", root, "sync")
+	if code != 0 || stderr != "" || stdout != "Synced 0 of 2 repos. 2 skipped.\n" {
+		t.Fatalf("sync must print only a summary by default: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	stdout, stderr, code = plainCommand(t, "status", "--no-fetch", "--verbose", "--dir", root, "--dir", root)
+	stdout, stderr, code = plainCommand(t, "sync", "--verbose", "--path", root, "--path", root)
 	if code != 0 || stderr != "" {
 		t.Fatalf("successful report: exit=%d stderr=%q", code, stderr)
 	}
-	for _, want := range []string{root, repo, linked, "worktree", "main", "feature", "1 untracked", "\ngitsy · 2 repos · 1 changed\n"} {
+	for _, want := range []string{root, repo, linked, "worktree", "main", "feature", "1 untracked", "\nSynced 0 of 2 repos. 2 skipped.\n"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("missing %q in report:\n%s", want, stdout)
 		}
@@ -98,7 +98,7 @@ func TestStatusCommandSummarizesAndReportsWithVerbose(t *testing.T) {
 	}
 }
 
-func TestStatusCommandFetchFailureStillReportsOtherRepos(t *testing.T) {
+func TestSyncCommandFetchFailureStillReportsOtherRepos(t *testing.T) {
 	root := t.TempDir()
 	bad, good := filepath.Join(root, "bad"), filepath.Join(root, "good")
 	for _, repo := range []string{bad, good} {
@@ -106,12 +106,12 @@ func TestStatusCommandFetchFailureStillReportsOtherRepos(t *testing.T) {
 	}
 	plainGit(t, bad, "remote", "add", "origin", filepath.Join(root, "missing-remote"))
 	for _, verbose := range []bool{false, true} {
-		argv := []string{"status", "--dir", root}
+		argv := []string{"sync", "--path", root}
 		if verbose {
 			argv = append(argv, "--verbose")
 		}
 		stdout, stderr, code := plainCommand(t, argv...)
-		if code != 1 || !strings.HasSuffix(stdout, "gitsy · 2 repos · 1 fetch failed\n") || !strings.Contains(stderr, "gitsy: missing-remote ("+bad+"): remote repo not found") || strings.Contains(stderr, good) {
+		if code != 1 || !strings.HasSuffix(stdout, "Synced 0 of 2 repos. 1 skipped, 1 failed.\n") || !strings.Contains(stderr, "gitsy: missing-remote ("+bad+"): remote repo not found") || strings.Contains(stderr, good) {
 			t.Fatalf("failed fetch must summarize and name the failed repo before exiting 1: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 		if strings.Contains(stdout, good) != verbose {
@@ -120,10 +120,6 @@ func TestStatusCommandFetchFailureStillReportsOtherRepos(t *testing.T) {
 		if strings.Contains(stderr, "gitsy: warning:") != verbose {
 			t.Fatalf("detailed warnings require --verbose: %q", stderr)
 		}
-	}
-	_, stderr, code := plainCommand(t, "status", "--no-fetch", "--dir", root)
-	if code != 0 || stderr != "" {
-		t.Fatalf("--no-fetch must succeed with unavailable remote: exit=%d stderr=%q", code, stderr)
 	}
 }
 
@@ -134,14 +130,14 @@ func TestSyncCommandFastForwardsAndSkipsUnsafeRepos(t *testing.T) {
 	commit(t, origin, "initial")
 	plainGit(t, root, "clone", "-q", origin, clone)
 	commit(t, origin, "update")
-	stdout, stderr, code := plainCommand(t, "--dir", root, "sync")
+	stdout, stderr, code := plainCommand(t, "--path", root, "sync")
 	if code != 0 || stderr != "" || stdout != "Synced 1 of 1 repo.\n" {
 		t.Fatalf("sync must fast-forward and summarize: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	if git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout != git.ResolveCommitContext(context.Background(), origin, "HEAD").Stdout {
 		t.Fatal("sync must advance HEAD to upstream")
 	}
-	stdout, stderr, code = plainCommand(t, "--dir", root, "sync")
+	stdout, stderr, code = plainCommand(t, "--path", root, "sync")
 	if code != 0 || stderr != "" || stdout != "Synced 0 of 1 repo. 1 up to date.\n" {
 		t.Fatalf("up-to-date sync: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -150,7 +146,7 @@ func TestSyncCommandFastForwardsAndSkipsUnsafeRepos(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout
-	stdout, stderr, code = plainCommand(t, "sync", "--verbose", "--dir", root)
+	stdout, stderr, code = plainCommand(t, "sync", "--verbose", "--path", root)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "main ↓1 · 1 untracked") || strings.Contains(stdout, "synced") || !strings.HasSuffix(stdout, "\nSynced 0 of 1 repo. 1 skipped.\n") {
 		t.Fatalf("unsafe sync skip is a normal result: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -159,52 +155,26 @@ func TestSyncCommandFastForwardsAndSkipsUnsafeRepos(t *testing.T) {
 	}
 }
 
-func TestFetchUpdatesRemoteRefsWithoutLocalBranches(t *testing.T) {
-	root, remotes := t.TempDir(), t.TempDir()
-	origin, clone, bad := filepath.Join(remotes, "origin"), filepath.Join(root, "clone"), filepath.Join(root, "bad")
-	plainGit(t, remotes, "init", "-q", "-b", "main", origin)
-	commit(t, origin, "initial")
-	plainGit(t, root, "clone", "-q", origin, clone)
-	commit(t, origin, "update")
-	before := git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout
-	stdout, stderr, code := plainCommand(t, "--dir", root, "fetch")
-	if code != 0 || stderr != "" || stdout != "Fetched 1 of 1 repo.\n" {
-		t.Fatalf("fetch must summarize fetches: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-	if git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout != before {
-		t.Fatal("fetch must not update the local branch")
-	}
-	if git.ResolveCommitContext(context.Background(), clone, "origin/main").Stdout != git.ResolveCommitContext(context.Background(), origin, "HEAD").Stdout {
-		t.Fatal("fetch must update remote-tracking refs")
-	}
-	plainGit(t, root, "init", "-q", "-b", "main", bad)
-	plainGit(t, bad, "remote", "add", "origin", filepath.Join(root, "missing-remote"))
-	stdout, stderr, code = plainCommand(t, "--dir", root, "fetch")
-	if code != 1 || stdout != "Fetched 1 of 2 repos. 1 failed.\n" || stderr != "gitsy: missing-remote ("+bad+"): remote repo not found\n" {
-		t.Fatalf("fetch failure must summarize and name the repo: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-}
-
 func TestCommandsEmptyAndInvalidRoots(t *testing.T) {
 	root := t.TempDir()
-	for _, command := range [][]string{{"status"}, {"sync"}, {"fetch"}} {
-		stdout, stderr, code := plainCommand(t, append(command, "--dir", root)...)
+	for _, command := range [][]string{{"sync"}} {
+		stdout, stderr, code := plainCommand(t, append(command, "--path", root)...)
 		if code != 0 || stderr != "" || stdout != "No child git repositories found.\n" {
 			t.Fatalf("%v: empty scan must succeed: exit=%d stdout=%q stderr=%q", command, code, stdout, stderr)
 		}
 	}
-	stdout, stderr, code := plainCommand(t, "worktree", "delete-merged", "--dir", root)
+	stdout, stderr, code := plainCommand(t, "worktree", "delete-merged", "--path", root)
 	if code != 0 || stderr != "" || stdout != "No merged worktrees.\n" {
 		t.Fatalf("empty delete-merged must succeed: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	_, stderr, code = plainCommand(t, "status", "--dir", filepath.Join(root, "missing"))
+	_, stderr, code = plainCommand(t, "sync", "--path", filepath.Join(root, "missing"))
 	if code != 1 || !strings.Contains(stderr, "read scan directory") {
 		t.Fatalf("invalid root must fail: exit=%d stderr=%q", code, stderr)
 	}
 }
 
 func TestUsageErrorsExitTwo(t *testing.T) {
-	for _, argv := range [][]string{{"--non-interactive"}, {"stats"}, {"worktree"}, {"status", "--fetch-only"}, {"sync", "--fetch-only"}, {"--sync"}, {"sync", "-y"}, {"sync", "--no-fetch"}, {"fetch", "--no-fetch"}} {
+	for _, argv := range [][]string{{"--non-interactive"}, {"stats"}, {"worktree"}, {"status"}, {"fetch"}, {"sync", "--fetch-only"}, {"--sync"}, {"sync", "-y"}, {"--no-fetch"}, {"--fast-forward"}, {"--dir", "/tmp"}} {
 		stdout, stderr, code := plainCommand(t, argv...)
 		if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "gitsy: ") || !strings.Contains(stderr, "Usage: gitsy [options] [command]") {
 			t.Fatalf("%v must be a usage error: exit=%d stdout=%q stderr=%q", argv, code, stdout, stderr)
@@ -241,7 +211,7 @@ func exists(path string) bool {
 
 func TestDeleteMergedRequiresConfirmationWithoutTerminal(t *testing.T) {
 	root, _, merged, unmerged := mergedWorkspace(t)
-	stdout, stderr, code := plainCommand(t, "--dir", root, "worktree", "delete-merged")
+	stdout, stderr, code := plainCommand(t, "--path", root, "worktree", "delete-merged")
 	if code != 2 || stdout != "" || stderr != "gitsy: confirmation required to delete 1 merged worktree; rerun with -y\n" {
 		t.Fatalf("delete-merged without -y must refuse: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -252,7 +222,7 @@ func TestDeleteMergedRequiresConfirmationWithoutTerminal(t *testing.T) {
 
 func TestDeleteMergedWithYesDeletesOnlyMergedWorktrees(t *testing.T) {
 	root, repo, merged, unmerged := mergedWorkspace(t)
-	stdout, stderr, code := plainCommand(t, "--dir", root, "worktree", "delete-merged", "-y", "--verbose")
+	stdout, stderr, code := plainCommand(t, "--path", root, "worktree", "delete-merged", "-y", "--verbose")
 	if code != 0 || stderr != "" || stdout != "Deleted repo ("+merged+")\nDeleted 1 merged worktree. Branches kept.\n" {
 		t.Fatalf("delete-merged -y: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -262,7 +232,7 @@ func TestDeleteMergedWithYesDeletesOnlyMergedWorktrees(t *testing.T) {
 	if !git.ResolveCommitContext(context.Background(), repo, "refs/heads/done").OK {
 		t.Fatal("deletion must keep the branch")
 	}
-	stdout, stderr, code = plainCommand(t, "--dir", root, "worktree", "delete-merged", "-y")
+	stdout, stderr, code = plainCommand(t, "--path", root, "worktree", "delete-merged", "-y")
 	if code != 0 || stderr != "" || stdout != "No merged worktrees.\n" {
 		t.Fatalf("nothing left to delete: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -271,7 +241,7 @@ func TestDeleteMergedWithYesDeletesOnlyMergedWorktrees(t *testing.T) {
 func TestDeleteMergedReportsFailedDeletion(t *testing.T) {
 	root, repo, merged, _ := mergedWorkspace(t)
 	plainGit(t, repo, "worktree", "lock", merged)
-	stdout, stderr, code := plainCommand(t, "--dir", root, "worktree", "delete-merged", "--yes")
+	stdout, stderr, code := plainCommand(t, "--path", root, "worktree", "delete-merged", "--yes")
 	if code != 1 || stdout != "Deleted 0 merged worktrees. 1 failed. Branches kept.\n" || stderr != "gitsy: repo ("+merged+"): delete failed: Worktree is locked; unlock it before deleting.\n" {
 		t.Fatalf("locked worktree must fail deletion: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -299,7 +269,7 @@ func TestDeleteMergedConfirmsOnTerminal(t *testing.T) {
 			}
 			var stdout, stderr bytes.Buffer
 			out := console{stdin: strings.NewReader(test.answer), stdout: &stdout, stderr: &stderr, terminal: true}
-			err = runDeleteMerged(context.Background(), out, workspace, args.Options{Command: args.CommandDeleteMerged, NoFetch: true}, nil)
+			err = runDeleteMerged(context.Background(), out, workspace, args.Options{Command: args.CommandDeleteMerged}, nil)
 			prompt := "Merged worktrees:\n  repo (" + merged + ") · merged into main\nDelete 1 merged worktree? Branches kept. [y/N] "
 			if stderr.String() != prompt {
 				t.Fatalf("unexpected prompt: %q", stderr.String())
@@ -333,7 +303,7 @@ func TestDeleteMergedPromptStopsOnInterrupt(t *testing.T) {
 		<-prompted
 		cancel()
 	}()
-	err = runDeleteMerged(ctx, out, workspace, args.Options{Command: args.CommandDeleteMerged, NoFetch: true}, nil)
+	err = runDeleteMerged(ctx, out, workspace, args.Options{Command: args.CommandDeleteMerged}, nil)
 	if !errors.Is(err, context.Canceled) || !exists(merged) {
 		t.Fatalf("interrupted prompt must cancel without deleting: err=%v", err)
 	}
@@ -386,16 +356,15 @@ func (failedWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 func TestCommandOutputFailureAndCancellation(t *testing.T) {
 	repo := discover.Repo{Path: t.TempDir(), DisplayName: "repo"}
 	workspace := discover.Workspace{Repos: []discover.Repo{repo}, Groups: []discover.Group{{Path: "/", RepoIndexes: []int{0}}}}
-	summary := func([]inspect.Result) string { return "summary" }
 	out := console{stdout: failedWriter{}, stderr: io.Discard}
-	if err := runInspection(context.Background(), out, workspace, inspect.NewSession(), true, false, summary, nil); !errors.Is(err, io.ErrClosedPipe) {
+	if err := runSync(context.Background(), out, workspace, nil); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("must return report write errors: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var stdout, stderr bytes.Buffer
 	out = console{stdout: &stdout, stderr: &stderr}
-	if err := runInspection(ctx, out, workspace, inspect.NewSession(), true, false, summary, nil); !errors.Is(err, context.Canceled) || stdout.Len() != 0 || stderr.Len() != 0 {
+	if err := runSync(ctx, out, workspace, nil); !errors.Is(err, context.Canceled) || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("cancellation must fail without claiming completed scan: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
 	}
 }

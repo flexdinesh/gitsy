@@ -18,7 +18,6 @@ type RepoResult struct {
 	Stale       bool
 	Loading     bool
 	LoadingText string
-	Fetching    bool   // loading includes an upstream fetch
 	Deleting    bool   // worktree removal in progress; shares LoadingText
 	Queued      bool   // waiting in a bulk worktree removal
 	Reason      string // short explanation for failed, stale or skipped state
@@ -383,10 +382,7 @@ func loadingText(result RepoResult) string {
 	if result.Deleting {
 		return "deleting…"
 	}
-	if result.Fetching {
-		return "fetching…"
-	}
-	return "checking status…"
+	return "fetching…"
 }
 
 // CompactSummary keeps actionable state ahead of branch names in narrow columns.

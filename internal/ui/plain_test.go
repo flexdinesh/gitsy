@@ -10,7 +10,7 @@ import (
 	"github.com/flexdinesh/gitsy/internal/status"
 )
 
-func TestPlainReportGroupsAndWorktrees(t *testing.T) {
+func TestPlainGroupsAndWorktrees(t *testing.T) {
 	workspace := discover.Workspace{
 		Repos: []discover.Repo{
 			{DisplayName: "api", Path: "/workspace/api", Source: discover.SourceWorktree},
@@ -35,14 +35,13 @@ func TestPlainReportGroupsAndWorktrees(t *testing.T) {
 		"  api (/worktrees/api-fix · worktree)\n" +
 		"    fix/auth · 2 modified · 1 untracked\n\n" +
 		"/empty\n" +
-		"  No child git repositories found.\n\n" +
-		"gitsy · 2 repos · 1 behind · 1 changed\n"
-	if got := PlainReport(workspace, results); got != want {
+		"  No child git repositories found.\n\n"
+	if got := PlainGroups(workspace, results); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
-func TestPlainReportSummaries(t *testing.T) {
+func TestPlainGroupsSummaries(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		result inspect.Result
@@ -72,8 +71,8 @@ func TestPlainReportSummaries(t *testing.T) {
 				Repos:  []discover.Repo{{DisplayName: "repo", Path: "/workspace/repo"}},
 				Groups: []discover.Group{{Path: "/workspace", RepoIndexes: []int{0}}},
 			}
-			got := PlainReport(workspace, []inspect.Result{test.result})
-			if !strings.HasPrefix(got, "/workspace\n  repo (/workspace/repo)\n    "+test.want+"\n\n") {
+			got := PlainGroups(workspace, []inspect.Result{test.result})
+			if got != "/workspace\n  repo (/workspace/repo)\n    "+test.want+"\n\n" {
 				t.Fatalf("unexpected summary: %q", got)
 			}
 			if strings.Contains(got, ".go") {
@@ -83,13 +82,7 @@ func TestPlainReportSummaries(t *testing.T) {
 	}
 }
 
-func TestPlainReportEmpty(t *testing.T) {
-	if got := PlainReport(discover.Workspace{}, nil); got != "No child git repositories found.\n" {
-		t.Fatalf("unexpected empty report: %q", got)
-	}
-}
-
-func TestPlainReportEscapesControls(t *testing.T) {
+func TestPlainGroupsEscapesControls(t *testing.T) {
 	workspace := discover.Workspace{
 		Repos:  []discover.Repo{{DisplayName: "repo\x1b[31m", Path: "/workspace/repo\t\r\n"}},
 		Groups: []discover.Group{{Path: "/workspace\x07", RepoIndexes: []int{0}}},
@@ -97,9 +90,8 @@ func TestPlainReportEscapesControls(t *testing.T) {
 	results := []inspect.Result{{Status: status.Parsed{Branch: &status.BranchStatus{Name: "main\u009b\x1b[2J"}}}}
 	want := "/workspace\\u0007\n" +
 		"  repo\\u001b[31m (/workspace/repo\\t\\r\\n)\n" +
-		"    main\\u009b\\u001b[2J ✓ clean\n\n" +
-		"gitsy · 1 repo\n"
-	if got := PlainReport(workspace, results); got != want {
+		"    main\\u009b\\u001b[2J ✓ clean\n\n"
+	if got := PlainGroups(workspace, results); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
@@ -127,21 +119,6 @@ func TestSyncSummary(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, test.want)
 			}
 		})
-	}
-}
-
-func TestFetchSummary(t *testing.T) {
-	ok, stale := inspect.Result{Status: status.Parse("## main")}, inspect.Result{Stale: true}
-	for _, test := range []struct {
-		results []inspect.Result
-		want    string
-	}{
-		{[]inspect.Result{ok}, "Fetched 1 of 1 repo."},
-		{[]inspect.Result{ok, stale, stale}, "Fetched 1 of 3 repos. 2 failed."},
-	} {
-		if got := FetchSummary(test.results); got != test.want {
-			t.Fatalf("got %q, want %q", got, test.want)
-		}
 	}
 }
 
@@ -175,15 +152,9 @@ func TestDeletionSummaryAndPrompt(t *testing.T) {
 	}
 }
 
-func TestStatusSummaryAndRepoLine(t *testing.T) {
-	workspace := discover.Workspace{Repos: []discover.Repo{{DisplayName: "api\x1b", Path: "/workspace/api\n"}}}
-	if got := StatusSummary(workspace, []inspect.Result{{Status: status.Parse("## main...origin/main [behind 1]")}}); got != "gitsy · 1 repo · 1 behind" {
-		t.Fatalf("unexpected status summary: %q", got)
-	}
-	if got := StatusSummary(discover.Workspace{}, nil); got != "No child git repositories found." {
-		t.Fatalf("unexpected empty summary: %q", got)
-	}
-	if got := RepoLine(workspace.Repos[0]); got != "api\\u001b (/workspace/api\\n)" {
+func TestRepoLine(t *testing.T) {
+	repo := discover.Repo{DisplayName: "api\x1b", Path: "/workspace/api\n"}
+	if got := RepoLine(repo); got != "api\\u001b (/workspace/api\\n)" {
 		t.Fatalf("repo line must escape controls: %q", got)
 	}
 }

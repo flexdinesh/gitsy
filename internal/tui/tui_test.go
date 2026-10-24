@@ -104,7 +104,7 @@ func TestUpdateQuitsOnQAndCtrlC(t *testing.T) {
 
 func TestUpdateCancelsContextOnQuit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	model := newModel(ctx, cancel, []discover.Repo{testRepo("repo")}, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) inspect.Result {
+	model := newModel(ctx, cancel, []discover.Repo{testRepo("repo")}, nil, func(ctx context.Context, repo discover.Repo, syncRepos bool, warn func(string)) inspect.Result {
 		return inspect.Result{Repo: repo}
 	})
 
@@ -245,7 +245,7 @@ func TestMouseWheelScrollsWithinRepoDetails(t *testing.T) {
 			" M four.go",
 		}, "\n")),
 	}
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 10})
 	model = updated.(Model)
 
 	updated, _ = model.Update(tea.MouseMsg{
@@ -283,7 +283,7 @@ func TestUpdateIgnoresOtherMouseEvents(t *testing.T) {
 
 func TestViewSeparatesChromeFromTablePanel(t *testing.T) {
 	model := newTestModel(testRepos("repo-a", "repo-b"))
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	view := updated.(Model).View()
 	lines := strings.Split(view, "\n")
 
@@ -293,7 +293,7 @@ func TestViewSeparatesChromeFromTablePanel(t *testing.T) {
 	if !strings.Contains(lines[len(lines)-1], "q quit") {
 		t.Fatalf("expected footer anchored below ledger:\n%s", view)
 	}
-	if got := lipgloss.Width(view); got != 80 {
+	if got := lipgloss.Width(view); got != 100 {
 		t.Fatalf("expected chrome zones to fit terminal width, got %d", got)
 	}
 }
@@ -476,25 +476,16 @@ func TestViewUsesOpenGutters(t *testing.T) {
 }
 
 func TestTableRowsShowSpinnerInLoadingStatusCell(t *testing.T) {
-	for _, test := range []struct {
-		noFetch, sync bool
-		want          string
-	}{
-		{true, false, ". checking status…"},
-		{false, false, ". fetching…"},
-		{true, true, ". fetching…"},
-	} {
-		model := newModel(context.Background(), nil, testRepos("repo"), test.noFetch, test.sync, nil, nil)
-		model.spin.Spinner.Frames = []string{"."}
+	model := newModel(context.Background(), nil, testRepos("repo"), nil, nil)
+	model.spin.Spinner.Frames = []string{"."}
 
-		rows := model.tableRows()
+	rows := model.tableRows()
 
-		if len(rows) != 1 {
-			t.Fatalf("expected one table row, got %d", len(rows))
-		}
-		if rows[0].number != "1" || !rows[0].marker || rows[0].repo != "repo" || rows[0].status != test.want || rows[0].compact != strings.TrimPrefix(test.want, ". ") {
-			t.Fatalf("expected mode-accurate loading status %q, got %#v", test.want, rows[0])
-		}
+	if len(rows) != 1 {
+		t.Fatalf("expected one table row, got %d", len(rows))
+	}
+	if rows[0].number != "1" || !rows[0].marker || rows[0].repo != "repo" || rows[0].status != ". fetching…" || rows[0].compact != "fetching…" {
+		t.Fatalf("expected fetching loading status, got %#v", rows[0])
 	}
 }
 
@@ -631,7 +622,7 @@ func TestTableColumnsHaveSpacingAndFitWidth(t *testing.T) {
 }
 
 func newTestModel(repos []discover.Repo) Model {
-	return newModel(context.Background(), nil, repos, true, false, nil, func(ctx context.Context, repo discover.Repo, noFetch bool, syncRepos bool, warn func(string)) inspect.Result {
+	return newModel(context.Background(), nil, repos, nil, func(ctx context.Context, repo discover.Repo, syncRepos bool, warn func(string)) inspect.Result {
 		return inspect.Result{
 			Repo:   repo,
 			Status: status.Parse("## main...origin/main\n"),
@@ -723,7 +714,8 @@ func TestHeaderReclaimsUnusedSummaryLine(t *testing.T) {
 	}{
 		{32, 4},
 		{40, 4},
-		{80, 3},
+		{80, 4},
+		{100, 3},
 		{120, 3},
 	} {
 		t.Run(strconv.Itoa(test.width), func(t *testing.T) {

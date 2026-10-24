@@ -49,12 +49,12 @@ type gitCommands struct {
 	remotes func(context.Context, string) git.Result
 }
 
-func Repos(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
-	return ReposContext(context.Background(), repos, noFetch, syncRepos, warn)
+func Repos(repos []discover.Repo, syncRepos bool, warn func(message string)) []Result {
+	return ReposContext(context.Background(), repos, syncRepos, warn)
 }
 
-func ReposContext(ctx context.Context, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(message string)) []Result {
-	return NewSession().ReposContext(ctx, repos, noFetch, syncRepos, warn)
+func ReposContext(ctx context.Context, repos []discover.Repo, syncRepos bool, warn func(message string)) []Result {
+	return NewSession().ReposContext(ctx, repos, syncRepos, warn)
 }
 
 func reposContext(ctx context.Context, repos []discover.Repo, inspect func(context.Context, discover.Repo) Result) []Result {
@@ -97,19 +97,19 @@ schedule:
 	return results
 }
 
-func Repo(repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) Result {
-	return RepoContext(context.Background(), repo, noFetch, syncRepo, warn)
+func Repo(repo discover.Repo, syncRepo bool, warn func(message string)) Result {
+	return RepoContext(context.Background(), repo, syncRepo, warn)
 }
 
-func RepoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string)) Result {
-	return NewSession().RepoContext(ctx, repo, noFetch, syncRepo, warn)
+func RepoContext(ctx context.Context, repo discover.Repo, syncRepo bool, warn func(message string)) Result {
+	return NewSession().RepoContext(ctx, repo, syncRepo, warn)
 }
 
-func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string), commands gitCommands) Result {
+func repoContext(ctx context.Context, repo discover.Repo, syncRepo bool, warn func(message string), commands gitCommands) Result {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	result := repoState(ctx, repo, noFetch, syncRepo, warn, commands)
+	result := repoState(ctx, repo, syncRepo, warn, commands)
 	if result.Failed || repo.Worktree == nil || commands.baseRefs == nil || commands.merged == nil || ctx.Err() != nil {
 		return result
 	}
@@ -131,17 +131,15 @@ func repoContext(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo
 	return result
 }
 
-func repoState(ctx context.Context, repo discover.Repo, noFetch bool, syncRepo bool, warn func(message string), commands gitCommands) Result {
+func repoState(ctx context.Context, repo discover.Repo, syncRepo bool, warn func(message string), commands gitCommands) Result {
 	stale := false
 	reason := ""
-	if !noFetch || syncRepo {
-		fetchResult := commands.fetch(ctx, repo.Path, fetchTimeout)
-		if !fetchResult.OK {
-			stale = true
-			reason = fetchReason(fetchResult)
-			if warn != nil {
-				warn(fmt.Sprintf("Fetch failed for %s: %s", repo.DisplayName, gitError(fetchResult)))
-			}
+	fetchResult := commands.fetch(ctx, repo.Path, fetchTimeout)
+	if !fetchResult.OK {
+		stale = true
+		reason = fetchReason(fetchResult)
+		if warn != nil {
+			warn(fmt.Sprintf("Fetch failed for %s: %s", repo.DisplayName, gitError(fetchResult)))
 		}
 	}
 	statusResult := commands.status(ctx, repo.Path)

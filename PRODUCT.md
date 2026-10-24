@@ -20,14 +20,14 @@ One command combines recursive repository and linked-worktree discovery, fresh u
 
 ## Operating Context
 
-gitsy runs in a developer's terminal against the current directory or a chosen workspace. It discovers child repositories, includes linked worktrees, fetches remotes by default, and supports keyboard and mouse navigation. Users can skip network access, inspect warnings, control scan depth, or request safe synchronization.
+gitsy runs in a developer's terminal against the current directory or a chosen workspace. It discovers child repositories, includes linked worktrees, fetches remotes, fast-forwards safe repositories, and supports keyboard and mouse navigation. Users can inspect warnings or control scan depth.
 
 ## Capabilities and Constraints
 
 - Go CLI built with Bubble Tea, Bubbles, and Lip Gloss.
 - Discovers repositories and linked worktrees deterministically, deduplicated by real path.
-- Fetches before status by default; `--no-fetch` permits local-only inspection.
-- `--fast-forward` only fast-forwards repositories that are eligible for conflict-free update.
+- Always fetches before status.
+- Only fast-forwards repositories that are eligible for conflict-free update.
 - Keeps Git execution, discovery, status parsing, display shaping, and TUI state in focused packages.
 - Keeps terminal output compact and stable; warnings remain opt-in through `--verbose`.
 - Supports Unicode-aware width handling and adaptive light/dark terminal colors.

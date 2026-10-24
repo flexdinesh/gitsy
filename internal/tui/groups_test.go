@@ -86,11 +86,11 @@ func TestGroupNavigationSelectsAppearancesAndSkipsHeaders(t *testing.T) {
 
 func TestGroupedInspectionsRunOnceAndUpdateEveryAppearance(t *testing.T) {
 	calls := map[string]int{}
-	model := newModel(context.Background(), nil, testRepos("api", "web"), false, true, nil,
-		func(_ context.Context, repo discover.Repo, noFetch, syncRepos bool, _ func(string)) inspect.Result {
+	model := newModel(context.Background(), nil, testRepos("api", "web"), nil,
+		func(_ context.Context, repo discover.Repo, syncRepos bool, _ func(string)) inspect.Result {
 			calls[repo.Path]++
-			if noFetch || !syncRepos {
-				t.Fatal("grouped inspection lost fetch/sync options")
+			if !syncRepos {
+				t.Fatal("grouped inspection must fast-forward")
 			}
 			return inspect.Result{Repo: repo, Status: status.Parse("## main\n M changed.go"), Stale: true,
 				Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}

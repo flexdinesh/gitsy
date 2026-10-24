@@ -112,4 +112,4 @@ for i in $(seq -w 1 20); do
 done
 
 echo "demo ready at $TARGET"
-echo "run: mise run run -- --dir \"$TARGET\""
+echo "run: mise run run -- --path \"$TARGET\""

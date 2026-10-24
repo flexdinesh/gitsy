@@ -20,7 +20,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-type inspector func(context.Context, discover.Repo, bool, bool, func(string)) inspect.Result
+type inspector func(context.Context, discover.Repo, bool, func(string)) inspect.Result
 
 // rowEntry is one rendered table body line. All text stays plain here;
 // truncation and styling happen at render time so ANSI codes never
@@ -61,8 +61,6 @@ type Model struct {
 	results     []ui.RepoResult
 	groups      []discover.Group
 	home        string
-	noFetch     bool
-	sync        bool
 	warn        func(string)
 	spin        spinner.Model
 	width       int
@@ -99,11 +97,11 @@ type repoDoneMsg struct {
 	result inspect.Result
 }
 
-func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, workspace discover.Workspace, noFetch bool, syncRepos bool, base string, warn func(string)) error {
+func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, workspace discover.Workspace, base string, warn func(string)) error {
 	session := inspect.NewSession()
 	session.DetectMerged = true
 	session.Base = base
-	model := newModel(ctx, cancel, workspace.Repos, noFetch, syncRepos, warn, session.RepoContext)
+	model := newModel(ctx, cancel, workspace.Repos, warn, session.RepoContext)
 	model.groups = workspace.Groups
 	model.base = base
 	detectBackground(output)
@@ -117,20 +115,19 @@ func Run(ctx context.Context, cancel context.CancelFunc, output *os.File, worksp
 	return err
 }
 
-func NewModel(repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string)) Model {
-	return newModel(context.Background(), nil, repos, noFetch, syncRepos, warn, inspect.NewSession().RepoContext)
+func NewModel(repos []discover.Repo, warn func(string)) Model {
+	return newModel(context.Background(), nil, repos, warn, inspect.NewSession().RepoContext)
 }
 
-func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.Repo, noFetch bool, syncRepos bool, warn func(string), inspect inspector) Model {
+func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.Repo, warn func(string), inspect inspector) Model {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	results := make([]ui.RepoResult, len(repos))
 	for index, repo := range repos {
 		results[index] = ui.RepoResult{
-			Repo:     repo,
-			Loading:  true,
-			Fetching: !noFetch || syncRepos,
+			Repo:    repo,
+			Loading: true,
 		}
 	}
 
@@ -143,8 +140,6 @@ func newModel(ctx context.Context, cancel context.CancelFunc, repos []discover.R
 		cancel:   cancel,
 		results:  results,
 		home:     home,
-		noFetch:  noFetch,
-		sync:     syncRepos,
 		warn:     warn,
 		spin:     spin,
 		next:     min(maxInspecting, len(repos)),
@@ -464,7 +459,7 @@ func (model Model) inspectRepo(index int, repo discover.Repo) tea.Cmd {
 	return func() tea.Msg {
 		return repoDoneMsg{
 			index:  index,
-			result: model.inspect(model.ctx, repo, model.noFetch, model.sync, model.warn),
+			result: model.inspect(model.ctx, repo, true, model.warn),
 		}
 	}
 }
@@ -1015,9 +1010,7 @@ func (model Model) summaryHeight(width int) int {
 	}
 	widest := []string{ui.Count(count, noun)}
 	for _, label := range ui.SummaryOrder {
-		if model.sync || label != "synced" {
-			widest = append(widest, fmt.Sprintf("%d %s", count, label))
-		}
+		widest = append(widest, fmt.Sprintf("%d %s", count, label))
 	}
 	if runewidth.StringWidth(strings.Join(widest, " · ")) <= max(1, width-spaceSM*2) {
 		return 1
@@ -1041,7 +1034,7 @@ func (model Model) headerRight() string {
 	if done == total {
 		state = "done"
 	}
-	return fmt.Sprintf("%s · %d/%d %s", model.mode(), done, total, state)
+	return fmt.Sprintf("%d/%d %s", done, total, state)
 }
 
 // headerCount is the header's narrow progress, also used for bulk deletion.
@@ -1050,18 +1043,7 @@ func (model Model) headerCount() string {
 		return fmt.Sprintf("deleting · %d/%d", model.bulk.next, len(model.bulk.repos))
 	}
 	done, total := model.progress()
-	return fmt.Sprintf("%s · %d/%d", model.mode(), done, total)
-}
-
-func (model Model) mode() string {
-	mode := "fetch"
-	if model.noFetch {
-		mode = "local"
-	}
-	if model.sync {
-		mode = "sync"
-	}
-	return mode
+	return fmt.Sprintf("%d/%d", done, total)
 }
 
 // The context rail shares the ledger's height.
