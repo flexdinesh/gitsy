@@ -11,6 +11,8 @@ Mode: Operate. Priorities: identify changed/behind/failed repositories quickly a
 
 PROGRESS: Header right shows active-tab unique completed/total inspections with operation mode and in-progress/done text. Failed inspections are completed; deleted worktrees are excluded. Directory right shows completed/total repos or worktrees, shared across overlapping groups and retained in sticky/compact context. Empty directories show 0/0. Narrow layouts preserve the ratio before labels; palette and density unchanged.
 
+DELETION: Removing row shows the dot spinner and brand “deleting…”; bulk waiting rows read text-lo “queued.” No action bar during removal; outcome notices remain. Bulk header right reads “deleting · completed/total” (compact counter too).
+
 ## Direction contract
 
 THESIS: A dispatch board grouped by scan directory, with dense repository strips and optional file detail.

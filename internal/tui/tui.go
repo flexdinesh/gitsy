@@ -265,7 +265,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.bulk = &bulk
 		return model, model.nextBulk()
 	case spinner.TickMsg:
-		if model.pending() == 0 {
+		if model.pending() == 0 && model.deleting == "" {
 			return model, nil
 		}
 		var command tea.Cmd
@@ -325,6 +325,9 @@ func tableViewportHeight(headerHeight, height int) int {
 
 func (model Model) compactView(width, height int) string {
 	done, total := model.progress()
+	if model.bulk != nil {
+		done, total = model.bulk.next, len(model.bulk.repos)
+	}
 	count := fmt.Sprintf("%d/%d", done, total)
 	lines := []string{padCell(compactSummary(model.summaryParts(), max(0, width-len(count)-spaceSM)), max(0, width-len(count))) + count}
 	if len(model.displayResults()) == 0 || model.browseEmpty {
@@ -371,7 +374,7 @@ func (model Model) compactView(width, height int) string {
 			if !result.Stale {
 				text = strings.TrimSpace(row.Line())
 			}
-			if index == 0 && model.worktrees && result.MergedInto != "" {
+			if index == 0 && model.worktrees && result.MergedInto != "" && !result.Deleting && !result.Queued {
 				text = "merged · " + text
 			}
 			lines = append(lines, text)
@@ -714,7 +717,8 @@ func firstRepoAt(rows []rowEntry, offset int, fallback int) int {
 func (model Model) tableRows() []rowEntry {
 	results := append([]ui.RepoResult(nil), model.displayResults()...)
 	for index := range results {
-		if results[index].Loading {
+		results[index] = model.withDeletion(results[index])
+		if results[index].Loading || results[index].Deleting {
 			results[index].LoadingText = model.spin.View()
 		}
 	}
@@ -728,9 +732,9 @@ func (model Model) tableRows() []rowEntry {
 	if model.worktrees {
 		for index := range entries {
 			entry := &entries[index]
-			if entry.repoIndex >= 0 && results[entry.repoIndex].MergedInto != "" {
+			if entry.repoIndex >= 0 && results[entry.repoIndex].MergedInto != "" && !results[entry.repoIndex].Deleting {
 				entry.merged = true
-				if entry.number != "" {
+				if entry.number != "" && !results[entry.repoIndex].Queued {
 					entry.status = "merged · " + entry.status
 					entry.compact = "merged · " + entry.compact
 				}
@@ -798,7 +802,7 @@ func (model Model) displayResults() []ui.RepoResult {
 
 func (model Model) selectedResult() ui.RepoResult {
 	results := model.displayResults()
-	return results[clamp(model.selected, 0, len(results)-1)]
+	return model.withDeletion(results[clamp(model.selected, 0, len(results)-1)])
 }
 
 func (model Model) selectedGroup() string {
@@ -917,8 +921,7 @@ func (model Model) renderHeader(width int) string {
 		}
 	}
 	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
-		done, total := model.progress()
-		right = fmt.Sprintf("%s · %d/%d", model.mode(), done, total)
+		right = model.headerCount()
 	}
 	if runewidth.StringWidth(left)+spaceSM+runewidth.StringWidth(right) > content {
 		if runewidth.StringWidth(right)+1 <= content {
@@ -1030,12 +1033,24 @@ func (model Model) headerHeight(width int) int {
 // headerRight is the header meta without the leading separator: the gap
 // between title and meta already separates them.
 func (model Model) headerRight() string {
+	if model.bulk != nil {
+		return model.headerCount()
+	}
 	done, total := model.progress()
 	state := "in progress"
 	if done == total {
 		state = "done"
 	}
 	return fmt.Sprintf("%s · %d/%d %s", model.mode(), done, total, state)
+}
+
+// headerCount is the header's narrow progress, also used for bulk deletion.
+func (model Model) headerCount() string {
+	if model.bulk != nil {
+		return fmt.Sprintf("deleting · %d/%d", model.bulk.next, len(model.bulk.repos))
+	}
+	done, total := model.progress()
+	return fmt.Sprintf("%s · %d/%d", model.mode(), done, total)
 }
 
 func (model Model) mode() string {
@@ -1157,7 +1172,7 @@ func (model Model) remoteInfo(result ui.RepoResult, rows []ui.Row, width int) []
 // detailHeight reserves one line above the footer for selected context
 // whenever the rail is hidden, so selection changes never shift the layout.
 func (model Model) detailHeight(width int) int {
-	if _, _, shown := layoutWidths(width); shown || model.confirm != nil || model.bulkConfirm != nil || model.deleting != "" {
+	if _, _, shown := layoutWidths(width); shown || model.confirm != nil || model.bulkConfirm != nil {
 		return 0
 	}
 	return 1

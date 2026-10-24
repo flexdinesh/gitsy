@@ -59,6 +59,9 @@ func TestRemoteSegments(t *testing.T) {
 		{"detached has no tag", RepoResult{Status: status.Parse("## HEAD (no branch)"), Remotes: inspect.Remotes{Known: true, Count: 1}}, "HEAD (no branch) ✓ clean", "green", true, "", ""},
 		{"unknown remotes have no tag", RepoResult{Status: status.Parse("## main")}, "main ✓ clean", "green", true, "", ""},
 		{"loading has no tag", RepoResult{Loading: true, Remotes: inspect.Remotes{Known: true}}, "checking status…", "cyan", false, "", ""},
+		{"deleting", RepoResult{Deleting: true, Status: clean, Remotes: inspect.Remotes{Known: true}}, "deleting…", "cyan", false, "", ""},
+		{"deleting with spinner", RepoResult{Deleting: true, LoadingText: "⣾"}, "⣾ deleting…", "cyan", false, "", ""},
+		{"queued", RepoResult{Queued: true, Status: clean, Stale: true}, "queued", "gray", true, "", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			row := RowsForRepo(test.result)[0]
@@ -116,6 +119,15 @@ func TestRemoteLabel(t *testing.T) {
 	}
 }
 
+func TestDeletionRowsHideFileDetail(t *testing.T) {
+	dirty := status.Parse("## main\n M one.go\n?? two.go")
+	for _, result := range []RepoResult{{Deleting: true, Status: dirty}, {Queued: true, Status: dirty}} {
+		if rows := RowsForRepo(result); len(rows) != 1 {
+			t.Fatalf("deletion state must render one row: %#v", rows)
+		}
+	}
+}
+
 func TestCompactSummaryPrioritizesState(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -138,6 +150,8 @@ func TestCompactSummaryPrioritizesState(t *testing.T) {
 		{"ordinary sync skip", RepoResult{Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "no upstream"}}, "✓ clean"},
 		{"loading", RepoResult{Loading: true}, "checking status…"},
 		{"fetching", RepoResult{Loading: true, Fetching: true}, "fetching…"},
+		{"deleting", RepoResult{Deleting: true, Status: status.Parse("## main\n M one.go")}, "deleting…"},
+		{"queued", RepoResult{Queued: true, Status: status.Parse("## main\n M one.go")}, "queued"},
 		{"one file", RepoResult{Status: status.Parse("## main\n M one.go")}, "1 file · main"},
 		{"conflicts", RepoResult{Status: status.Parse("## main\nUU one.go\nUU two.go")}, "2 conflicts · main"},
 		{"synced one", RepoResult{Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 1}}, "synced 1 commit"},
