@@ -17,13 +17,13 @@ func TestParseReturnsDefaults(t *testing.T) {
 	if !reflect.DeepEqual(result.Options.Dirs, []string{"/cwd"}) {
 		t.Fatalf("expected Dirs [/cwd], got %v", result.Options.Dirs)
 	}
-	if result.Options.Command != CommandTUI || result.Options.Verbose || result.Options.NoFetch || result.Options.Sync || result.Options.FetchOnly || result.Options.Yes || result.Options.Help || result.Options.Version {
+	if result.Options.Command != CommandTUI || result.Options.Verbose || result.Options.NoFetch || result.Options.Sync || result.Options.Yes || result.Options.Help || result.Options.Version {
 		t.Fatalf("expected boolean flags to default false: %+v", result.Options)
 	}
 }
 
 func TestParseSupportsFlags(t *testing.T) {
-	result := Parse([]string{"--verbose", "--no-fetch", "--sync", "--help", "--version"}, "/cwd")
+	result := Parse([]string{"--verbose", "--no-fetch", "--fast-forward", "--help", "--version"}, "/cwd")
 	if !result.OK {
 		t.Fatalf("Parse returned error: %v", result.Err)
 	}
@@ -131,16 +131,16 @@ func TestParseSupportsBase(t *testing.T) {
 
 func TestParseCommands(t *testing.T) {
 	for _, test := range []struct {
-		argv      []string
-		command   Command
-		fetchOnly bool
-		yes       bool
-		dirs      []string
+		argv    []string
+		command Command
+		yes     bool
+		dirs    []string
 	}{
 		{argv: []string{"status"}, command: CommandStatus, dirs: []string{"/cwd"}},
 		{argv: []string{"--dir", "/ws", "status", "--no-fetch"}, command: CommandStatus, dirs: []string{"/ws"}},
 		{argv: []string{"sync"}, command: CommandSync, dirs: []string{"/cwd"}},
-		{argv: []string{"--dir", "/ws", "sync", "--fetch-only"}, command: CommandSync, fetchOnly: true, dirs: []string{"/ws"}},
+		{argv: []string{"fetch"}, command: CommandFetch, dirs: []string{"/cwd"}},
+		{argv: []string{"--dir", "/ws", "fetch", "--verbose"}, command: CommandFetch, dirs: []string{"/ws"}},
 		{argv: []string{"sync", "--dir=/one", "--verbose"}, command: CommandSync, dirs: []string{"/one"}},
 		{argv: []string{"worktree", "delete-merged"}, command: CommandDeleteMerged, dirs: []string{"/cwd"}},
 		{argv: []string{"--dir", "/ws", "worktree", "delete-merged", "-y"}, command: CommandDeleteMerged, yes: true, dirs: []string{"/ws"}},
@@ -152,7 +152,7 @@ func TestParseCommands(t *testing.T) {
 				t.Fatalf("Parse returned error: %v", result.Err)
 			}
 			options := result.Options
-			if options.Command != test.command || options.FetchOnly != test.fetchOnly || options.Yes != test.yes || !reflect.DeepEqual(options.Dirs, test.dirs) {
+			if options.Command != test.command || options.Yes != test.yes || !reflect.DeepEqual(options.Dirs, test.dirs) {
 				t.Fatalf("unexpected options: %+v", options)
 			}
 		})
@@ -170,12 +170,16 @@ func TestParseRejectsInvalidCommands(t *testing.T) {
 		{argv: []string{"worktree"}, want: "Missing worktree command (expected delete-merged)"},
 		{argv: []string{"worktree", "prune"}, want: "Unknown worktree command: prune"},
 		{argv: []string{"worktree", "delete-merged", "all"}, want: "Unknown argument: all"},
-		{argv: []string{"--fetch-only"}, want: "--fetch-only only applies to gitsy sync"},
-		{argv: []string{"status", "--fetch-only"}, want: "--fetch-only only applies to gitsy sync"},
+		{argv: []string{"fetch", "now"}, want: "Unknown argument: now"},
+		{argv: []string{"--fetch-only"}, want: "Unknown argument: --fetch-only"},
+		{argv: []string{"sync", "--fetch-only"}, want: "Unknown argument: --fetch-only"},
+		{argv: []string{"--sync"}, want: "Unknown argument: --sync"},
 		{argv: []string{"-y"}, want: "-y only applies to gitsy worktree delete-merged"},
 		{argv: []string{"sync", "--yes"}, want: "-y only applies to gitsy worktree delete-merged"},
-		{argv: []string{"status", "--sync"}, want: "--sync only applies to the TUI; use gitsy sync"},
+		{argv: []string{"status", "--fast-forward"}, want: "--fast-forward only applies to the TUI; use gitsy sync"},
+		{argv: []string{"fetch", "--fast-forward"}, want: "--fast-forward only applies to the TUI; use gitsy sync"},
 		{argv: []string{"sync", "--no-fetch"}, want: "--no-fetch cannot be used with gitsy sync; sync always fetches"},
+		{argv: []string{"fetch", "--no-fetch"}, want: "--no-fetch cannot be used with gitsy fetch"},
 	} {
 		t.Run(strings.Join(test.argv, " "), func(t *testing.T) {
 			result := Parse(test.argv, "/cwd")
@@ -187,10 +191,12 @@ func TestParseRejectsInvalidCommands(t *testing.T) {
 }
 
 func TestUsageDocumentsCommandsAndExitCodes(t *testing.T) {
-	if strings.Contains(Usage, "--non-interactive") {
-		t.Fatal("usage must not document removed --non-interactive flag")
+	for _, removed := range []string{"--non-interactive", "--sync", "--fetch-only"} {
+		if strings.Contains(Usage, removed) {
+			t.Fatalf("usage must not document removed %s flag", removed)
+		}
 	}
-	for _, want := range []string{"Usage: gitsy [options] [command]", "  status ", "  sync ", "--fetch-only", "  worktree delete-merged ", "-y, --yes", "Exit codes:", "  0 ", "  1 ", "  2 ", "  130 "} {
+	for _, want := range []string{"Usage: gitsy [options] [command]", "  status ", "  sync ", "  fetch ", "--fast-forward", "  worktree delete-merged ", "-y, --yes", "Exit codes:", "  0 ", "  1 ", "  2 ", "  130 "} {
 		if !strings.Contains(Usage, want) {
 			t.Fatalf("usage must document %q", want)
 		}

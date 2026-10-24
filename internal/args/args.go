@@ -12,13 +12,13 @@ const Usage = `Usage: gitsy [options] [command]
 
 Show git status across child repositories and linked worktrees.
 Fetch all remotes fresh every run; linked worktrees share fetching when safe.
-Sync skips repos if fetching fails, including failures from unrelated remotes.
+Fast-forward skips repos if fetching fails, including failures from unrelated remotes.
 Without a command, gitsy opens the TUI.
 
 Commands:
   status                     Print a status summary and exit
   sync                       Fast-forward repos that can safely update without conflicts (always fetches)
-    --fetch-only             Fetch remotes without updating local branches
+  fetch                      Fetch remotes without updating local branches
   worktree delete-merged     Delete all merged linked worktrees; confirms first, keeps branches
     -y, --yes                Delete without confirming
 
@@ -27,7 +27,7 @@ Options:
   --dir <path>       Scan <path> instead of the current directory (repeatable)
   --verbose          Print per-repo details and warnings for failed git commands
   --no-fetch         Skip fetching upstream changes (use local status only)
-  --sync             Open the TUI and fast-forward repos that can safely update (always fetches)
+  --fast-forward     Open the TUI and fast-forward repos that can safely update (always fetches)
   --base <branch>    Default branch for merged worktrees (default: gitsy.base config, then origin/HEAD)
   --help             Show this help message
   --version          Show package version
@@ -50,21 +50,21 @@ const (
 	CommandTUI          Command = ""
 	CommandStatus       Command = "status"
 	CommandSync         Command = "sync"
+	CommandFetch        Command = "fetch"
 	CommandDeleteMerged Command = "worktree delete-merged"
 )
 
 type Options struct {
-	Command   Command
-	MaxDepth  int
-	Verbose   bool
-	NoFetch   bool
-	Sync      bool
-	FetchOnly bool
-	Yes       bool
-	Base      string
-	Dirs      []string
-	Help      bool
-	Version   bool
+	Command  Command
+	MaxDepth int
+	Verbose  bool
+	NoFetch  bool
+	Sync     bool
+	Yes      bool
+	Base     string
+	Dirs     []string
+	Help     bool
+	Version  bool
 }
 
 type ParseResult struct {
@@ -89,10 +89,8 @@ func Parse(argv []string, cwd string) ParseResult {
 			options.Verbose = true
 		case arg == "--no-fetch":
 			options.NoFetch = true
-		case arg == "--sync":
+		case arg == "--fast-forward":
 			options.Sync = true
-		case arg == "--fetch-only":
-			options.FetchOnly = true
 		case arg == "-y" || arg == "--yes":
 			options.Yes = true
 		case arg == "--help":
@@ -170,7 +168,7 @@ func parseCommand(words []string) (Command, error) {
 		return CommandTUI, nil
 	}
 	switch words[0] {
-	case "status", "sync":
+	case "status", "sync", "fetch":
 		if len(words) > 1 {
 			return "", fmt.Errorf("Unknown argument: %s", words[1])
 		}
@@ -193,13 +191,13 @@ func parseCommand(words []string) (Command, error) {
 func validate(options Options) error {
 	switch {
 	case options.Sync && options.Command != CommandTUI:
-		return fmt.Errorf("--sync only applies to the TUI; use gitsy sync")
-	case options.FetchOnly && options.Command != CommandSync:
-		return fmt.Errorf("--fetch-only only applies to gitsy sync")
+		return fmt.Errorf("--fast-forward only applies to the TUI; use gitsy sync")
 	case options.Yes && options.Command != CommandDeleteMerged:
 		return fmt.Errorf("-y only applies to gitsy worktree delete-merged")
 	case options.NoFetch && options.Command == CommandSync:
 		return fmt.Errorf("--no-fetch cannot be used with gitsy sync; sync always fetches")
+	case options.NoFetch && options.Command == CommandFetch:
+		return fmt.Errorf("--no-fetch cannot be used with gitsy fetch")
 	}
 	return nil
 }

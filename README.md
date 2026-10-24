@@ -1,6 +1,6 @@
 # gitsy
 
-gitsy is a tiny CLI that scans a directory for git repositories and linked worktrees, automatically fetches from upstream, and optionally fast-forwards local branches with `--sync`. It displays status in a nice TUI so you can see what needs attention.
+gitsy is a tiny CLI that scans a directory for git repositories and linked worktrees, automatically fetches from upstream, and optionally fast-forwards local branches with `--fast-forward`. It displays status in a nice TUI so you can see what needs attention.
 
 ![gitsy demo](assets/gitsy-demo.gif)
 
@@ -21,7 +21,7 @@ go install github.com/flexdinesh/gitsy/cmd/gitsy@latest
 gitsy
 
 # Fast-forward repositories that can safely update without conflicts.
-gitsy --sync
+gitsy --fast-forward
 
 # Print a status summary and exit; add --verbose for a per-repo report.
 gitsy status
@@ -30,7 +30,7 @@ gitsy status
 gitsy --dir ~/workspace sync
 
 # Fetch all remotes without updating local branches.
-gitsy --dir ~/workspace sync --fetch-only
+gitsy --dir ~/workspace fetch
 
 # Delete all merged linked worktrees after confirming; -y skips the prompt.
 gitsy --dir ~/workspace worktree delete-merged
@@ -73,7 +73,7 @@ commands fetch per checkout to preserve their existing behavior. Checkout-relati
 validation, and bundle paths also disable sharing. Status and sync remain
 independent for each checkout.
 
-`--sync` and `gitsy sync` always fetch; `--sync` ignores `--no-fetch`. Only
+`--fast-forward` and `gitsy sync` always fetch; `--fast-forward` ignores `--no-fetch`. Only
 clean branches with an upstream, commits behind, and no commits ahead can
 fast-forward. If any remote
 fails to fetch, sync is skipped for that checkout, including failures from
@@ -114,7 +114,7 @@ Commands run without the TUI and exit. Options such as `--dir`, `--max-depth`,
 | --- | --- | --- |
 | `gitsy status` | Fetches (unless `--no-fetch`) and reads status | `gitsy · 6 repos · 1 behind · 2 changed` |
 | `gitsy sync` | Fetches and fast-forwards safe repos | `Synced 2 of 6 repos. 3 up to date, 1 failed.` |
-| `gitsy sync --fetch-only` | Fetches without touching local branches | `Fetched 5 of 6 repos. 1 failed.` |
+| `gitsy fetch` | Fetches without touching local branches | `Fetched 5 of 6 repos. 1 failed.` |
 | `gitsy worktree delete-merged` | Force deletes merged linked worktrees; keeps branches | `Deleted 2 merged worktrees. Branches kept.` |
 
 Each command prints one summary line on stdout and one line per failed

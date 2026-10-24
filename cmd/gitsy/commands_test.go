@@ -159,7 +159,7 @@ func TestSyncCommandFastForwardsAndSkipsUnsafeRepos(t *testing.T) {
 	}
 }
 
-func TestSyncFetchOnlyUpdatesRemoteRefsWithoutLocalBranches(t *testing.T) {
+func TestFetchUpdatesRemoteRefsWithoutLocalBranches(t *testing.T) {
 	root, remotes := t.TempDir(), t.TempDir()
 	origin, clone, bad := filepath.Join(remotes, "origin"), filepath.Join(root, "clone"), filepath.Join(root, "bad")
 	plainGit(t, remotes, "init", "-q", "-b", "main", origin)
@@ -167,19 +167,19 @@ func TestSyncFetchOnlyUpdatesRemoteRefsWithoutLocalBranches(t *testing.T) {
 	plainGit(t, root, "clone", "-q", origin, clone)
 	commit(t, origin, "update")
 	before := git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout
-	stdout, stderr, code := plainCommand(t, "--dir", root, "sync", "--fetch-only")
+	stdout, stderr, code := plainCommand(t, "--dir", root, "fetch")
 	if code != 0 || stderr != "" || stdout != "Fetched 1 of 1 repo.\n" {
-		t.Fatalf("fetch-only must summarize fetches: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+		t.Fatalf("fetch must summarize fetches: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	if git.ResolveCommitContext(context.Background(), clone, "HEAD").Stdout != before {
-		t.Fatal("fetch-only must not update the local branch")
+		t.Fatal("fetch must not update the local branch")
 	}
 	if git.ResolveCommitContext(context.Background(), clone, "origin/main").Stdout != git.ResolveCommitContext(context.Background(), origin, "HEAD").Stdout {
-		t.Fatal("fetch-only must update remote-tracking refs")
+		t.Fatal("fetch must update remote-tracking refs")
 	}
 	plainGit(t, root, "init", "-q", "-b", "main", bad)
 	plainGit(t, bad, "remote", "add", "origin", filepath.Join(root, "missing-remote"))
-	stdout, stderr, code = plainCommand(t, "--dir", root, "sync", "--fetch-only")
+	stdout, stderr, code = plainCommand(t, "--dir", root, "fetch")
 	if code != 1 || stdout != "Fetched 1 of 2 repos. 1 failed.\n" || stderr != "gitsy: missing-remote ("+bad+"): fetch failed: repo not found\n" {
 		t.Fatalf("fetch failure must summarize and name the repo: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -187,7 +187,7 @@ func TestSyncFetchOnlyUpdatesRemoteRefsWithoutLocalBranches(t *testing.T) {
 
 func TestCommandsEmptyAndInvalidRoots(t *testing.T) {
 	root := t.TempDir()
-	for _, command := range [][]string{{"status"}, {"sync"}, {"sync", "--fetch-only"}} {
+	for _, command := range [][]string{{"status"}, {"sync"}, {"fetch"}} {
 		stdout, stderr, code := plainCommand(t, append(command, "--dir", root)...)
 		if code != 0 || stderr != "" || stdout != "No child git repositories found.\n" {
 			t.Fatalf("%v: empty scan must succeed: exit=%d stdout=%q stderr=%q", command, code, stdout, stderr)
@@ -204,7 +204,7 @@ func TestCommandsEmptyAndInvalidRoots(t *testing.T) {
 }
 
 func TestUsageErrorsExitTwo(t *testing.T) {
-	for _, argv := range [][]string{{"--non-interactive"}, {"stats"}, {"worktree"}, {"status", "--fetch-only"}, {"sync", "-y"}, {"sync", "--no-fetch"}} {
+	for _, argv := range [][]string{{"--non-interactive"}, {"stats"}, {"worktree"}, {"status", "--fetch-only"}, {"sync", "--fetch-only"}, {"--sync"}, {"sync", "-y"}, {"sync", "--no-fetch"}, {"fetch", "--no-fetch"}} {
 		stdout, stderr, code := plainCommand(t, argv...)
 		if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "gitsy: ") || !strings.Contains(stderr, "Usage: gitsy [options] [command]") {
 			t.Fatalf("%v must be a usage error: exit=%d stdout=%q stderr=%q", argv, code, stdout, stderr)

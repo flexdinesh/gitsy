@@ -27,7 +27,7 @@ gitsy runs in a developer's terminal against the current directory or a chosen w
 - Go CLI built with Bubble Tea, Bubbles, and Lip Gloss.
 - Discovers repositories and linked worktrees deterministically, deduplicated by real path.
 - Fetches before status by default; `--no-fetch` permits local-only inspection.
-- `--sync` only fast-forwards repositories that are eligible for conflict-free update.
+- `--fast-forward` only fast-forwards repositories that are eligible for conflict-free update.
 - Keeps Git execution, discovery, status parsing, display shaping, and TUI state in focused packages.
 - Keeps terminal output compact and stable; warnings remain opt-in through `--verbose`.
 - Supports Unicode-aware width handling and adaptive light/dark terminal colors.
