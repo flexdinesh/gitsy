@@ -15,6 +15,7 @@ import (
 	"github.com/flexdinesh/gitsy/internal/git"
 	"github.com/flexdinesh/gitsy/internal/inspect"
 	"github.com/flexdinesh/gitsy/internal/status"
+	"github.com/flexdinesh/gitsy/internal/ui"
 	"github.com/muesli/termenv"
 )
 
@@ -650,14 +651,14 @@ func TestCompactViewPinsFooterToLastLine(t *testing.T) {
 }
 
 func TestCompactSummaryDropsWholeSegmentsByPriority(t *testing.T) {
-	parts := []string{"27 repos", "1 failed", "17 changed", "2 behind", "1 stale"}
+	parts := []string{"27 repos", "1 failed", "17 changed", "2 behind", "1 fetch failed"}
 	for _, test := range []struct {
 		width int
 		want  string
 	}{
-		{80, "gitsy · 27 repos · 1 failed · 17 changed · 2 behind · 1 stale"},
-		{53, "27 repos · 1 failed · 17 changed · 2 behind · 1 stale"},
-		{40, "27 repos · 1 failed · 2 behind · 1 stale"},
+		{80, "gitsy · 27 repos · 1 failed · 17 changed · 2 behind · 1 fetch failed"},
+		{53, "27 repos · 1 failed · 2 behind · 1 fetch failed"},
+		{40, "27 repos · 1 failed · 2 behind"},
 		{30, "27 repos · 1 failed · 2 behind"},
 		{24, "27 repos · 1 failed"},
 		{10, "27 repos"},
@@ -672,24 +673,39 @@ func TestCompactSummaryDropsWholeSegmentsByPriority(t *testing.T) {
 	}
 }
 
-func TestContextRailShowsSkippedSyncOnceAndAbbreviatesPaths(t *testing.T) {
+func TestContextRailShowsRemoteStateOnceAndAbbreviatesPaths(t *testing.T) {
+	github := inspect.Remotes{Known: true, Count: 1, OriginURL: "https://github.com/o/r"}
 	for _, test := range []struct {
-		reason string
-		want   string
+		name   string
+		result func(*ui.RepoResult)
+		want   []string
+		once   string
 	}{
-		{"fetch failed", "sync skipped: fetch failed"},
-		{"no upstream", "Sync skipped: no upstream"},
+		{"fetch failed", func(result *ui.RepoResult) {
+			result.Stale, result.Reason, result.Remotes = true, inspect.ReasonAuth, github
+		}, []string{"Remote", "origin · github.com", "Hint: run gh auth setup-git, or switch origin to SSH"}, "remote auth needed"},
+		{"no upstream", func(result *ui.RepoResult) {
+			result.Status, result.Remotes = status.Parse("## feature\n"), github
+		}, []string{"Remote", "origin · github.com"}, "No upstream"},
+		{"local only", func(result *ui.RepoResult) {
+			result.Status, result.Remotes = status.Parse("## feature\n"), inspect.Remotes{Known: true}
+		}, []string{"Remote"}, "No remote"},
 	} {
-		t.Run(test.reason, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			model := worktreeTestModel()
 			model.home = "/home/user"
 			model.results[1].Repo.Path = "/home/user/work/feature"
 			model.results[1].Repo.Worktree.MainPath = "/home/user/work/main"
-			model.results[1].Sync = &inspect.SyncOutcome{Kind: "skipped", Reason: test.reason}
+			test.result(&model.results[1])
 			model, _ = keyModel(model, "tab")
 			info := strings.Join(model.infoLines(80), "\n")
-			if strings.Count(strings.ToLower(info), "sync skipped") != 1 || !strings.Contains(info, test.want) {
-				t.Fatalf("skipped sync must appear once:\n%s", info)
+			for _, want := range test.want {
+				if !strings.Contains(info, want) {
+					t.Fatalf("rail lost %q:\n%s", want, info)
+				}
+			}
+			if strings.Count(info, test.once) != 1 || strings.Contains(strings.ToLower(info), "skipped") {
+				t.Fatalf("rail must show %q once without skipped-sync text:\n%s", test.once, info)
 			}
 			if !strings.Contains(info, "~/work/feature") || !strings.Contains(info, "~/work/main") || strings.Contains(info, "/home/user") {
 				t.Fatalf("rail paths must use ~:\n%s", info)

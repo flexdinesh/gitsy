@@ -29,12 +29,13 @@ func plainResults(workspace discover.Workspace, results []inspect.Result) []Repo
 	repoResults := make([]RepoResult, len(results))
 	for index, result := range results {
 		repoResults[index] = RepoResult{
-			Repo:   workspace.Repos[index],
-			Status: result.Status,
-			Failed: result.Failed,
-			Stale:  result.Stale,
-			Sync:   result.Sync,
-			Reason: result.Reason,
+			Repo:    workspace.Repos[index],
+			Status:  result.Status,
+			Failed:  result.Failed,
+			Stale:   result.Stale,
+			Sync:    result.Sync,
+			Reason:  result.Reason,
+			Remotes: result.Remotes,
 		}
 	}
 	return repoResults
@@ -56,7 +57,7 @@ func PlainGroups(workspace discover.Workspace, results []inspect.Result) string 
 				path += " · worktree"
 			}
 			fmt.Fprintf(&report, "  %s (%s)\n", plainText(repo.DisplayName), path)
-			fmt.Fprintln(&report, "    "+plainText(RowsForRepo(repoResults[index])[0].Text))
+			fmt.Fprintln(&report, "    "+plainText(RowsForRepo(repoResults[index])[0].Line()))
 		}
 		fmt.Fprintln(&report)
 	}
@@ -72,7 +73,7 @@ func Failure(result inspect.Result) (string, bool) {
 		return result.Reason, true
 	}
 	if result.Stale {
-		return "fetch failed", true
+		return inspect.ReasonFetchFailed, true
 	}
 	return "failed", true
 }

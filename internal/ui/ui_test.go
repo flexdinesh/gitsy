@@ -204,9 +204,9 @@ func TestTitleTalliesByPriority(t *testing.T) {
 		{"ahead", []RepoResult{{Status: status.Parse("## main...origin/main [ahead 2]")}, {Status: status.Parse("## main...origin/main [ahead 1, behind 1]")}}, "gitsy · 2 repos · 1 behind · 2 ahead"},
 		{"sync", []RepoResult{
 			{Status: status.Parse("## main...origin/main"), Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}},
-			{Status: status.Parse("## main...origin/main [behind 1]\n M a.go"), Stale: true, Sync: &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}},
+			{Status: status.Parse("## main...origin/main [behind 1]\n M a.go"), Stale: true, Reason: inspect.ReasonAuth},
 			{Failed: true},
-		}, "gitsy · 3 repos · 1 failed · 1 behind · 1 stale · 1 changed · 1 skipped · 1 synced"},
+		}, "gitsy · 3 repos · 1 failed · 1 behind · 1 fetch failed · 1 changed · 1 synced"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := Title(test.results, len(test.results)); got != test.want {
@@ -222,6 +222,10 @@ func TestSummaryTonesMatchRowTones(t *testing.T) {
 		t.Fatalf("header changed tone %q must match row tone %q", SummaryTone("changed"), changed.Tone)
 	}
 	failed := RowsForRepo(RepoResult{Failed: true})[0]
+	stale := RowsForRepo(RepoResult{Stale: true})[0]
+	if SummaryTone("fetch failed") != stale.RemoteTone {
+		t.Fatalf("header fetch failed tone %q must match row remote tone %q", SummaryTone("fetch failed"), stale.RemoteTone)
+	}
 	if SummaryTone("failed") != failed.Tone || SummaryTone("behind") != "yellow" || SummaryTone("synced") != "green" {
 		t.Fatal("summary tones must follow row semantics")
 	}

@@ -32,6 +32,8 @@ type rowEntry struct {
 	tag        string // linked worktree basename shown beside the repository
 	worktree   string
 	status     string
+	remote     string // follows status in remoteTone
+	remoteTone string
 	compact    string
 	divider    bool
 	tone       string
@@ -217,6 +219,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				Sync:       msg.result.Sync,
 				Reason:     msg.result.Reason,
 				MergedInto: msg.result.MergedInto,
+				Remotes:    msg.result.Remotes,
 			}
 		}
 		model.refresh()
@@ -363,7 +366,11 @@ func (model Model) compactView(width, height int) string {
 		}
 		lines = append(lines, iconSelected+" "+name)
 		for index, row := range ui.RowsForRepo(result) {
+			// Fetch reasons get their own line below; local-only tags stay inline.
 			text := strings.TrimSpace(row.Text)
+			if !result.Stale {
+				text = strings.TrimSpace(row.Line())
+			}
 			if index == 0 && model.worktrees && result.MergedInto != "" {
 				text = "merged · " + text
 			}
@@ -843,15 +850,17 @@ func buildEntryList(results []ui.RepoResult, selected int) []rowEntry {
 				repo = row.Repo
 			}
 			entries = append(entries, rowEntry{
-				number:    number,
-				marker:    marker,
-				repo:      repo,
-				status:    row.Text,
-				compact:   compact,
-				tone:      row.Tone,
-				bold:      row.Bold,
-				dim:       row.Dim,
-				repoIndex: resultIndex,
+				number:     number,
+				marker:     marker,
+				repo:       repo,
+				status:     row.Text,
+				remote:     row.Remote,
+				remoteTone: row.RemoteTone,
+				compact:    compact,
+				tone:       row.Tone,
+				bold:       row.Bold,
+				dim:        row.Dim,
+				repoIndex:  resultIndex,
 			})
 		}
 	}
@@ -1003,7 +1012,7 @@ func (model Model) summaryHeight(width int) int {
 	}
 	widest := []string{ui.Count(count, noun)}
 	for _, label := range ui.SummaryOrder {
-		if model.sync || label != "skipped" && label != "synced" {
+		if model.sync || label != "synced" {
 			widest = append(widest, fmt.Sprintf("%d %s", count, label))
 		}
 	}
@@ -1093,23 +1102,54 @@ func (model Model) infoLines(width int) []string {
 	}
 	lines = append(lines, "", infoSectionStyle().Render("Status"))
 	rows := ui.RowsForRepo(result)
-	summary := ""
 	if len(rows) > 0 {
-		summary = rows[0].Text
-		for _, line := range wrapPlain(summary, width) {
+		for _, line := range wrapPlain(rows[0].Text, width) {
 			lines = append(lines, toneStyle(rows[0].Tone, false, false).Render(line))
 		}
 	}
-	if result.Reason != "" {
+	// Fetch reasons belong to the remote section.
+	if result.Reason != "" && !result.Stale || result.Failed {
 		for _, line := range wrapPlain(result.Reason, width) {
 			lines = append(lines, toneStyle(ui.ReasonTone(result), false, false).Render(line))
 		}
 	}
-	if result.Sync != nil && result.Sync.Kind == "skipped" && !strings.Contains(summary, "sync skipped") {
-		lines = append(lines, wrapInfo("Sync skipped: "+result.Sync.Reason, width, warning)...)
-	}
+	lines = append(lines, model.remoteInfo(result, rows, width)...)
 	if model.worktrees && result.MergedInto != "" {
 		lines = append(lines, wrapInfo("Merged into "+result.MergedInto, width, textLo)...)
+	}
+	return lines
+}
+
+// remoteInfo names the remote, then any fetch failure with one fix hint.
+func (model Model) remoteInfo(result ui.RepoResult, rows []ui.Row, width int) []string {
+	if result.Loading {
+		return nil
+	}
+	label := ui.RemoteLabel(result.Remotes)
+	fetchFailed := result.Stale && !result.Failed
+	if label == "" && !fetchFailed {
+		return nil
+	}
+	lines := []string{"", infoSectionStyle().Render("Remote")}
+	if label != "" {
+		color := textHi
+		if result.Remotes.Count == 0 {
+			color = textLo
+		}
+		lines = append(lines, wrapInfo(label, width, color)...)
+	}
+	// "local only" repeats "No remote"; other segments explain the remote state.
+	if len(rows) > 0 && rows[0].Remote != "" && rows[0].Remote != "local only" {
+		text := rows[0].Remote
+		if text == "no upstream" {
+			text = "No upstream"
+		}
+		for _, line := range wrapPlain(text, width) {
+			lines = append(lines, toneStyle(rows[0].RemoteTone, false, false).Render(line))
+		}
+	}
+	if hint := ui.RemoteHint(result); hint != "" {
+		lines = append(lines, wrapInfo("Hint: "+hint, width, textLo)...)
 	}
 	return lines
 }
@@ -1276,10 +1316,15 @@ func renderRow(entry rowEntry, cols tableColumns, selected int) string {
 		statusWidth -= runewidth.StringWidth(selectionCap)
 	}
 	statusText := entry.status
+	if entry.remote != "" {
+		statusText += " · " + entry.remote
+	}
 	if entry.number != "" && entry.compact != "" && runewidth.StringWidth(statusText) > statusWidth {
 		statusText = entry.compact
 	}
-	status := padCell(truncateCell(statusText, statusWidth), statusWidth) + endCap
+	renderStatus := func(base, accent lipgloss.Style) string {
+		return renderSegments(statusText, entry.remote, statusWidth, endCap, base, accent)
+	}
 	if selectedRow {
 		mark := selectedNumStyle().Background(selection).Render(" ")
 		if entry.marker {
@@ -1289,13 +1334,41 @@ func renderRow(entry rowEntry, cols tableColumns, selected int) string {
 			selectedNumStyle().Background(selection).Render(padCell(truncateCell(" "+entry.number, numberWidth-1), numberWidth-1)+gap+name) +
 			headerMetaStyle().Background(selection).Render(tag) +
 			selectedNumStyle().Background(selection).Render(after+gap) +
-			toneStyle(entry.tone, entry.bold, false).Background(selection).Render(status)
+			renderStatus(toneStyle(entry.tone, entry.bold, false).Background(selection), toneStyle(entry.remoteTone, entry.bold, false).Background(selection))
 	}
 	identity := lipgloss.NewStyle().Foreground(textHi)
 	if entry.merged {
 		identity = headerMetaStyle()
 	}
-	return headerMetaStyle().Render(number) + gap + identity.Render(name) + headerMetaStyle().Render(tag) + identity.Render(after) + gap + toneStyle(entry.tone, false, entry.dim || entry.merged).Render(status)
+	return headerMetaStyle().Render(number) + gap + identity.Render(name) + headerMetaStyle().Render(tag) + identity.Render(after) + gap +
+		renderStatus(toneStyle(entry.tone, false, entry.dim || entry.merged), toneStyle(entry.remoteTone, false, entry.merged))
+}
+
+// renderSegments truncates and pads text to width, styling the first
+// occurrence of segment with accent and everything else with base.
+func renderSegments(text, segment string, width int, endCap string, base, accent lipgloss.Style) string {
+	cell := truncateCell(text, width)
+	tail := strings.Repeat(" ", max(0, width-runewidth.StringWidth(cell))) + endCap
+	start := -1
+	if segment != "" {
+		start = strings.Index(text, segment)
+	}
+	if start < 0 {
+		return base.Render(cell + tail)
+	}
+	visible := len(cell)
+	if cell != text {
+		visible = len(strings.TrimSuffix(cell, "…"))
+	}
+	if start >= visible {
+		return base.Render(cell + tail)
+	}
+	end := start + len(segment)
+	if end > visible {
+		// The ellipsis stands in for the rest of the segment.
+		end = len(cell)
+	}
+	return base.Render(cell[:start]) + accent.Render(cell[start:end]) + base.Render(cell[end:]+tail)
 }
 
 // selectionCap ends selected rows when the terminal has no styling.

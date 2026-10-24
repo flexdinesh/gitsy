@@ -78,7 +78,7 @@ func TestDenseOverviewWheelAndEndNavigation(t *testing.T) {
 func TestNarrowHeaderKeepsExceptionCounts(t *testing.T) {
 	model := previewModel()
 	header := model.renderHeader(40)
-	for _, label := range []string{"8 repos", "1 failed", "2 changed", "1 behind", "1 stale"} {
+	for _, label := range []string{"8 repos", "1 failed", "2 changed", "1 behind", "1 fetch failed"} {
 		if !strings.Contains(header, label) {
 			t.Fatalf("narrow header lost %q: %s", label, header)
 		}
@@ -90,7 +90,7 @@ func TestNarrowHeaderKeepsExceptionCounts(t *testing.T) {
 
 func TestViewsFitTerminal(t *testing.T) {
 	for _, size := range [][2]int{{1, 1}, {20, 6}, {31, 10}, {32, 7}, {40, 10}, {60, 16}, {80, 24}, {104, 24}, {120, 24}, {160, 32}} {
-		for _, state := range []string{"overview", "files", "empty", "sync skipped"} {
+		for _, state := range []string{"overview", "files", "empty", "fetch failed"} {
 			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], state), func(t *testing.T) {
 				model := previewModel()
 				model.results[0].Repo.DisplayName = "日本語-worktree-long-name"
@@ -99,9 +99,10 @@ func TestViewsFitTerminal(t *testing.T) {
 				if state == "empty" {
 					model.results = nil
 				}
-				if state == "sync skipped" {
+				if state == "fetch failed" {
 					model.results[0].Stale = true
-					model.results[0].Sync = &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"}
+					model.results[0].Reason = inspect.ReasonAuth
+					model.results[0].Remotes = inspect.Remotes{Known: true, Count: 1, OriginURL: "https://git.example.com/o/r.git"}
 				}
 				model.width, model.height = size[0], size[1]
 				model.refresh()
@@ -114,7 +115,7 @@ func TestViewsFitTerminal(t *testing.T) {
 	}
 }
 
-func TestFetchFailureExplainsSkippedSyncAcrossLayouts(t *testing.T) {
+func TestFetchFailureExplainsReasonAcrossLayouts(t *testing.T) {
 	for _, width := range []int{60, 120} {
 		t.Run(fmt.Sprintf("width-%d", width), func(t *testing.T) {
 			model := newTestModel(testRepos("repo"))
@@ -126,24 +127,23 @@ func TestFetchFailureExplainsSkippedSyncAcrossLayouts(t *testing.T) {
 					Repo:   testRepo("repo"),
 					Status: status.Parse("## long-feature-branch...origin/main [behind 2]"),
 					Stale:  true,
-					Sync:   &inspect.SyncOutcome{Kind: "skipped", Reason: "fetch failed"},
+					Reason: inspect.ReasonAuth,
 				},
 			})
 			model = updated.(Model)
 			view := model.View()
-			for _, text := range []string{"stale", "sync skipped"} {
+			for _, text := range []string{"remote auth needed", "1 fetch failed"} {
 				if !strings.Contains(view, text) {
 					t.Fatalf("layout lost %q: %s", text, view)
 				}
 			}
-			if width == 120 && !strings.Contains(view, "fetch failed") {
-				t.Fatalf("wide layout must include skipped-sync reason: %s", view)
-			}
-			if strings.Contains(view, "synced") || strings.Contains(view, "sync failed") {
-				t.Fatalf("fetch failure must show sync was skipped: %s", view)
+			for _, text := range []string{"stale", "skipped", "synced", "sync failed"} {
+				if strings.Contains(view, text) {
+					t.Fatalf("fetch failure must only name its reason, found %q: %s", text, view)
+				}
 			}
 			if lipgloss.Width(view) > width || lipgloss.Height(view) > 24 {
-				t.Fatalf("skipped sync overflows %dx24: %s", width, view)
+				t.Fatalf("fetch failure overflows %dx24: %s", width, view)
 			}
 		})
 	}

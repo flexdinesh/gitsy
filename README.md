@@ -77,8 +77,10 @@ independent for each checkout.
 clean branches with an upstream, commits behind, and no commits ahead can
 fast-forward. If any remote
 fails to fetch, sync is skipped for that checkout, including failures from
-unrelated remotes. Available local status is shown as stale with
-`sync skipped: fetch failed`.
+unrelated remotes. Available local status is shown with the fetch reason, such
+as `main ✓ clean · ⚠ remote auth needed`, and the context rail suggests a fix.
+Repositories without remotes show `local only`; branches without an upstream
+show `no upstream`.
 
 With `--dir`, only the supplied directories are scanned. `--max-depth` applies
 to each directory; linked worktrees are included wherever they live. Relative
@@ -118,7 +120,7 @@ Commands run without the TUI and exit. Options such as `--dir`, `--max-depth`,
 | `gitsy worktree delete-merged` | Force deletes merged linked worktrees; keeps branches | `Deleted 2 merged worktrees. Branches kept.` |
 
 Each command prints one summary line on stdout and one line per failed
-repository on stderr, such as `gitsy: api (/ws/api): fetch failed: auth`.
+repository on stderr, such as `gitsy: api (/ws/api): remote auth needed`.
 `--verbose` adds the grouped per-repo report (or per-worktree deletion results)
 and detailed Git warnings. Output contains no filenames or terminal control
 sequences. Dirty, behind, diverged, and sync-skipped repositories are normal

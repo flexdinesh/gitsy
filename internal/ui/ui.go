@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -21,6 +22,7 @@ type RepoResult struct {
 	Reason      string // short explanation for failed, stale or skipped state
 	Sync        *inspect.SyncOutcome
 	MergedInto  string // base branch a linked worktree is merged into
+	Remotes     inspect.Remotes
 }
 
 type Row struct {
@@ -30,6 +32,17 @@ type Row struct {
 	Tone string
 	Bold bool
 	Dim  bool
+	// Remote follows Text in its own tone: a fetch failure or a local-only tag.
+	Remote     string
+	RemoteTone string
+}
+
+// Line joins the local summary and remote segment for single-tone output.
+func (row Row) Line() string {
+	if row.Remote == "" {
+		return row.Text
+	}
+	return row.Text + " · " + row.Remote
 }
 
 type categoryStyle struct {
@@ -85,13 +98,13 @@ func Title(results []RepoResult, totalDiscovered int) string {
 			}
 		}
 		if result.Stale {
-			counts["stale"]++
+			counts["fetch failed"]++
 		}
 		if len(result.Status.Items) > 0 {
 			counts["changed"]++
 		}
-		if result.Sync != nil && (result.Sync.Kind == "skipped" || result.Sync.Kind == "synced") {
-			counts[result.Sync.Kind]++
+		if result.Sync != nil && result.Sync.Kind == "synced" {
+			counts["synced"]++
 		}
 	}
 
@@ -106,9 +119,9 @@ func Title(results []RepoResult, totalDiscovered int) string {
 
 // SummaryOrder ranks summary counts from most to least urgent; narrow
 // headers drop counts from the end.
-var SummaryOrder = []string{"failed", "behind", "ahead", "stale", "changed", "skipped", "synced"}
+var SummaryOrder = []string{"failed", "behind", "ahead", "fetch failed", "changed", "synced"}
 
-// ReasonTone marks failures red and stale or skipped state yellow.
+// ReasonTone marks failures red and fetch failures yellow.
 func ReasonTone(result RepoResult) string {
 	if result.Failed || result.Sync != nil && result.Sync.Kind == "failed" {
 		return "red"
@@ -121,7 +134,7 @@ func SummaryTone(label string) string {
 	switch label {
 	case "failed":
 		return "red"
-	case "behind", "stale", "skipped":
+	case "behind", "fetch failed":
 		return "yellow"
 	case "ahead", "changed":
 		return "blue"
@@ -161,14 +174,9 @@ func RowsForRepo(result RepoResult) []Row {
 	}
 
 	rows := []Row{}
-	summary := FormatBranchSummary(result.Status)
+	summary := FormatBranchSummary(reliableStatus(result))
 	if counts := formatChangeCounts(result.Status.Items); counts != "" {
 		summary.Text += " · " + counts
-	}
-	if result.Stale {
-		summary.Text = "⚠ stale · " + summary.Text
-		summary.Tone = "yellow"
-		summary.Dim = false
 	}
 	if result.Failed {
 		summary.Text = "⚠ status failed"
@@ -188,24 +196,19 @@ func RowsForRepo(result RepoResult) []Row {
 			summary.Text = "⚠ sync failed · " + summary.Text
 			summary.Tone = "red"
 			summary.Dim = false
-		case "skipped":
-			if result.Sync.Reason == "fetch failed" {
-				summary.Text += " · sync skipped: fetch failed"
-				if !result.Failed {
-					summary.Tone = "yellow"
-				}
-				summary.Dim = false
-			}
 		}
 	}
 
+	remote, remoteTone := remoteSegment(result)
 	rows = append(rows, Row{
-		Kind: "data",
-		Repo: result.Repo.DisplayName,
-		Text: summary.Text,
-		Tone: summary.Tone,
-		Bold: true,
-		Dim:  summary.Dim,
+		Kind:       "data",
+		Repo:       result.Repo.DisplayName,
+		Text:       summary.Text,
+		Tone:       summary.Tone,
+		Bold:       true,
+		Dim:        summary.Dim,
+		Remote:     remote,
+		RemoteTone: remoteTone,
 	})
 
 	if len(result.Status.Items) == 0 {
@@ -216,6 +219,147 @@ func RowsForRepo(result RepoResult) []Row {
 		rows = append(rows, formatItemRow(item))
 	}
 	return rows
+}
+
+// reliableStatus drops "upstream gone" after a failed fetch, when the
+// missing remote-tracking ref may only mean it was never fetched.
+func reliableStatus(result RepoResult) status.Parsed {
+	parsed := result.Status
+	if !result.Stale || parsed.Branch == nil || !parsed.Branch.Gone {
+		return parsed
+	}
+	branch := *parsed.Branch
+	branch.Gone = false
+	if branch.Metadata == "gone" {
+		branch.Metadata = ""
+	}
+	parsed.Branch = &branch
+	parsed.Changed = len(parsed.Items) > 0 || branch.Ahead > 0 || branch.Behind > 0
+	return parsed
+}
+
+// remoteSegment explains fetch failures, or tags branches nothing upstream tracks.
+func remoteSegment(result RepoResult) (string, string) {
+	if result.Loading || result.Failed {
+		return "", ""
+	}
+	if result.Stale {
+		reason := result.Reason
+		if reason == "" {
+			reason = inspect.ReasonFetchFailed
+		}
+		return "⚠ " + reason, "yellow"
+	}
+	if tag := remoteTag(result); tag != "" {
+		return tag, "gray"
+	}
+	return "", ""
+}
+
+// remoteTag marks checkouts that look current only because nothing tracks them.
+func remoteTag(result RepoResult) string {
+	if !result.Remotes.Known {
+		return ""
+	}
+	if result.Remotes.Count == 0 {
+		return "local only"
+	}
+	branch := result.Status.Branch
+	if branch != nil && branch.Upstream == "" && !detached(branch) {
+		return "no upstream"
+	}
+	return ""
+}
+
+func detached(branch *status.BranchStatus) bool {
+	return branch.Name == "" || strings.HasPrefix(branch.Name, "HEAD (no branch)")
+}
+
+// RemoteHint suggests one next step for a failed fetch. Host-specific advice
+// only applies with a single remote, because any remote can fail the fetch.
+func RemoteHint(result RepoResult) string {
+	if !result.Stale || result.Failed {
+		return ""
+	}
+	scheme, host := "", ""
+	single := result.Remotes.Known && result.Remotes.Count == 1 && result.Remotes.OriginURL != ""
+	if single {
+		scheme, host = remoteHost(result.Remotes.OriginURL)
+	}
+	switch result.Reason {
+	case inspect.ReasonAuth:
+		switch {
+		case (scheme == "https" || scheme == "http") && host == "github.com":
+			return "run gh auth setup-git, or switch origin to SSH"
+		case (scheme == "https" || scheme == "http") && host != "":
+			return "configure a credential helper for " + host + ", or use SSH"
+		case scheme == "ssh" && host != "":
+			return "check SSH key access to " + host
+		}
+		return "check credentials for the remote"
+	case inspect.ReasonNotFound:
+		if single {
+			return "origin deleted or renamed; update or remove the remote"
+		}
+		return "a remote was deleted or renamed; update or remove it"
+	case inspect.ReasonUnreachable:
+		if host != "" {
+			return "check network/VPN for " + host
+		}
+		return "check network/VPN"
+	case inspect.ReasonFetchTimeout:
+		return "retry, or check network"
+	}
+	return ""
+}
+
+// RemoteLabel names the remote for display: "origin · host", or a count.
+func RemoteLabel(remotes inspect.Remotes) string {
+	switch {
+	case !remotes.Known:
+		return ""
+	case remotes.Count == 0:
+		return "No remote"
+	case remotes.OriginURL != "":
+		if _, host := remoteHost(remotes.OriginURL); host != "" {
+			return "origin · " + host
+		}
+		return "origin"
+	}
+	return Count(remotes.Count, "remote")
+}
+
+// remoteHost returns "https", "http" or "ssh" and the host for a remote URL.
+func remoteHost(value string) (string, string) {
+	if strings.Contains(value, "::") {
+		return "", ""
+	}
+	if strings.Contains(value, "://") {
+		parsed, err := url.Parse(value)
+		if err != nil {
+			return "", ""
+		}
+		switch parsed.Scheme {
+		case "https", "http":
+			return parsed.Scheme, parsed.Hostname()
+		case "ssh", "git+ssh", "ssh+git":
+			return "ssh", parsed.Hostname()
+		}
+		return "", ""
+	}
+	// scp-like syntax: [user@]host:path, with the colon before any slash.
+	colon, slash := strings.IndexByte(value, ':'), strings.IndexByte(value, '/')
+	if colon <= 0 || slash >= 0 && slash < colon {
+		return "", ""
+	}
+	host := value[:colon]
+	if at := strings.LastIndexByte(host, '@'); at >= 0 {
+		host = host[at+1:]
+	}
+	if host == "" {
+		return "", ""
+	}
+	return "ssh", host
 }
 
 type BranchSummary struct {
@@ -243,11 +387,9 @@ func CompactSummary(result RepoResult) string {
 	if result.Sync != nil && result.Sync.Kind == "failed" {
 		parts = append(parts, "⚠ sync failed")
 	}
+	remote, _ := remoteSegment(result)
 	if result.Stale {
-		parts = append(parts, "⚠ stale")
-	}
-	if result.Sync != nil && result.Sync.Kind == "skipped" && result.Sync.Reason == "fetch failed" {
-		parts = append(parts, "sync skipped: fetch failed")
+		parts = append(parts, remote)
 	}
 	conflicts := 0
 	for _, item := range result.Status.Items {
@@ -263,7 +405,7 @@ func CompactSummary(result RepoResult) string {
 	if result.Sync != nil && result.Sync.Kind == "synced" {
 		parts = append(parts, "synced "+Count(result.Sync.Pulled, "commit"))
 	}
-	branch := result.Status.Branch
+	branch := reliableStatus(result).Branch
 	if branch != nil {
 		if branch.Behind > 0 {
 			parts = append(parts, fmt.Sprintf("↓%d", branch.Behind))
@@ -274,9 +416,15 @@ func CompactSummary(result RepoResult) string {
 		if branch.Gone {
 			parts = append(parts, "upstream gone")
 		}
+		if branch.Unborn {
+			parts = append(parts, "no commits yet")
+		}
 	}
 	if len(parts) == 0 {
 		parts = append(parts, "✓ clean")
+	}
+	if !result.Stale && remote != "" {
+		parts = append(parts, remote)
 	}
 	if branch != nil {
 		name := branch.Name
@@ -301,6 +449,9 @@ func FormatBranchSummary(parsed status.Parsed) BranchSummary {
 	if branch.Name == "" {
 		parts[0] = "detached"
 	}
+	if branch.Unborn {
+		parts[0] += " · no commits yet"
+	}
 	if branch.Ahead > 0 {
 		parts = append(parts, fmt.Sprintf("↑%d", branch.Ahead))
 	}
@@ -314,6 +465,9 @@ func FormatBranchSummary(parsed status.Parsed) BranchSummary {
 		parts = append(parts, fmt.Sprintf("[%s]", branch.Metadata))
 	}
 
+	if !parsed.Changed && branch.Unborn {
+		return BranchSummary{Text: strings.Join(parts, " "), Tone: "gray", Dim: true}
+	}
 	if !parsed.Changed {
 		parts = append(parts, "✓ clean")
 		return BranchSummary{Text: strings.Join(parts, " "), Tone: "green", Dim: true}

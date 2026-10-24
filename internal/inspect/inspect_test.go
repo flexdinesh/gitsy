@@ -35,9 +35,9 @@ func TestRepoOutcomes(t *testing.T) {
 	}{
 		{name: "local clean", noFetch: true, before: clean},
 		{name: "fetch failure", before: clean, fetchFails: true, wantStale: true, wantWarning: "Fetch failed"},
-		{name: "sync fetch failure", sync: true, before: behind, fetchFails: true, wantStale: true, wantSync: "skipped", wantWarning: "Fetch failed"},
-		{name: "clean sync fetch failure", sync: true, before: clean, fetchFails: true, wantStale: true, wantSync: "skipped", wantWarning: "Fetch failed"},
-		{name: "sync fetch and status failure", sync: true, fetchFails: true, statusFails: true, wantFailed: true, wantStale: true, wantSync: "skipped", wantWarning: "Fetch failed"},
+		{name: "sync fetch failure", sync: true, before: behind, fetchFails: true, wantStale: true, wantWarning: "Fetch failed"},
+		{name: "clean sync fetch failure", sync: true, before: clean, fetchFails: true, wantStale: true, wantWarning: "Fetch failed"},
+		{name: "sync fetch and status failure", sync: true, fetchFails: true, statusFails: true, wantFailed: true, wantStale: true, wantWarning: "Fetch failed"},
 		{name: "status failure", statusFails: true, wantFailed: true, wantWarning: "Failed to read status"},
 		{name: "sync always fetches", noFetch: true, sync: true, before: behind, wantSync: "synced"},
 		{name: "dirty skipped", sync: true, before: behind + " M file.go\n"},
@@ -112,8 +112,8 @@ func TestRepoOutcomes(t *testing.T) {
 			if kind == "synced" && got.Sync.Pulled != 2 {
 				t.Fatalf("expected two pulled commits, got %+v", got.Sync)
 			}
-			if test.wantSync == "skipped" && (got.Sync.Reason != "fetch failed" || merged) {
-				t.Fatal("failed fetch must skip sync with a reason")
+			if test.fetchFails && merged {
+				t.Fatal("failed fetch must skip sync")
 			}
 			if test.wantSync == "" && merged {
 				t.Fatal("ineligible repo must never be merged")
@@ -188,13 +188,13 @@ func TestFetchReasonClassifiesErrors(t *testing.T) {
 		stderr string
 		want   string
 	}{
-		{"git fetch timed out", "fetch timed out after 30s"},
-		{"fatal: Authentication failed for 'https://example.com/org/repo.git/'", "fetch failed: auth"},
-		{"git@example.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.", "fetch failed: auth"},
-		{"fatal: could not read Username for 'https://example.com': terminal prompts disabled", "fetch failed: auth"},
-		{"fatal: unable to access 'https://example.com/': The requested URL returned error: 403", "fetch failed: auth"},
-		{"remote: Repository not found.\nfatal: repository 'https://example.com/x.git/' not found", "fetch failed: repo not found"},
-		{"fatal: '/missing' does not appear to be a git repository\nfatal: Could not read from remote repository.", "fetch failed: repo not found"},
+		{"git fetch timed out", "fetch timed out"},
+		{"fatal: Authentication failed for 'https://example.com/org/repo.git/'", "remote auth needed"},
+		{"git@example.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.", "remote auth needed"},
+		{"fatal: could not read Username for 'https://example.com': terminal prompts disabled", "remote auth needed"},
+		{"fatal: unable to access 'https://example.com/': The requested URL returned error: 403", "remote auth needed"},
+		{"remote: Repository not found.\nfatal: repository 'https://example.com/x.git/' not found", "remote repo not found"},
+		{"fatal: '/missing' does not appear to be a git repository\nfatal: Could not read from remote repository.", "remote repo not found"},
 		{"fatal: unable to access 'https://example.com/': Could not resolve host: example.com", "remote unreachable"},
 		{"ssh: connect to host example.com port 22: Connection timed out\nfatal: Could not read from remote repository.", "remote unreachable"},
 		{"ssh: connect to host example.com port 22: Connection refused", "remote unreachable"},
@@ -264,6 +264,39 @@ func TestRepoReasonsFollowPriority(t *testing.T) {
 			got := repoContext(context.Background(), discover.Repo{Path: "/repo"}, false, test.sync, nil, commands)
 			if got.Reason != test.want {
 				t.Fatalf("reason = %q, want %q", got.Reason, test.want)
+			}
+		})
+	}
+}
+
+func TestRepoReportsRemotes(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		result git.Result
+		unset  bool
+		want   Remotes
+		warned bool
+	}{
+		{name: "unset lookup", unset: true},
+		{name: "no remotes", result: git.Result{Status: 1}, want: Remotes{Known: true}},
+		{name: "origin", result: git.Result{OK: true, Stdout: "remote.origin.url\ngit@github.com:o/r.git\x00remote.fork.url\nhttps://example.com/r\x00"}, want: Remotes{Known: true, Count: 2, OriginURL: "git@github.com:o/r.git"}},
+		{name: "no origin", result: git.Result{OK: true, Stdout: "remote.fork.url\nhttps://example.com/r\x00"}, want: Remotes{Known: true, Count: 1}},
+		{name: "lookup failure", result: git.Result{Stderr: "fatal: bad config", Status: 128}, warned: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commands := gitCommands{
+				fetch:  func(context.Context, string, time.Duration) git.Result { return git.Result{OK: true} },
+				status: func(context.Context, string) git.Result { return git.Result{OK: true, Stdout: "## main\n"} },
+			}
+			if !test.unset {
+				commands.remotes = func(context.Context, string) git.Result { return test.result }
+			}
+			warnings := []string{}
+			got := repoContext(context.Background(), discover.Repo{Path: "/repo", DisplayName: "repo"}, true, false, func(message string) {
+				warnings = append(warnings, message)
+			}, commands)
+			if got.Remotes != test.want || (len(warnings) > 0) != test.warned {
+				t.Fatalf("remotes=%+v warnings=%v, want %+v warned=%t", got.Remotes, warnings, test.want, test.warned)
 			}
 		})
 	}

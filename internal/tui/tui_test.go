@@ -73,7 +73,7 @@ func TestCompletionKeepsInspectionFailuresVisible(t *testing.T) {
 		},
 	})
 	view := updated.(Model).View()
-	for _, text := range []string{"status failed", "sync failed", "1 failed", "1 stale"} {
+	for _, text := range []string{"status failed", "sync failed", "1 failed", "1 fetch failed"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("completion lost failure state %q: %s", text, view)
 		}

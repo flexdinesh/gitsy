@@ -220,7 +220,7 @@ func TestNarrowGroupedHeaderKeepsExceptionCounts(t *testing.T) {
 		{Path: "/workspace/personal", RepoIndexes: []int{0}},
 	}
 	header := model.renderHeader(40)
-	for _, label := range []string{"2 dirs", "8 unique repos", "1 failed", "2 changed", "1 behind", "1 stale"} {
+	for _, label := range []string{"2 dirs", "8 unique repos", "1 failed", "2 changed", "1 behind", "1 fetch failed"} {
 		if !strings.Contains(header, label) {
 			t.Fatalf("group count must not crowd out %q:\n%s", label, header)
 		}

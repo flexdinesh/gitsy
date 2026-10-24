@@ -13,6 +13,7 @@ type BranchStatus struct {
 	Ahead    int
 	Behind   int
 	Gone     bool
+	Unborn   bool // the branch has no commits yet
 	Metadata string
 }
 
@@ -132,6 +133,14 @@ func ParseBranchLine(line string) BranchStatus {
 		name = branchPart[:index]
 		upstream = branchPart[index+3:]
 	}
+	unborn := false
+	// Git before 2.25 says "Initial commit on" where newer Git says "No commits yet on".
+	for _, prefix := range []string{"No commits yet on ", "Initial commit on "} {
+		if trimmed, ok := strings.CutPrefix(name, prefix); ok {
+			name, unborn = trimmed, true
+			break
+		}
+	}
 
 	return BranchStatus{
 		Raw:      raw,
@@ -140,6 +149,7 @@ func ParseBranchLine(line string) BranchStatus {
 		Ahead:    parseMetadataCount(metadata, "ahead"),
 		Behind:   parseMetadataCount(metadata, "behind"),
 		Gone:     strings.Contains(metadata, "gone"),
+		Unborn:   unborn,
 		Metadata: metadata,
 	}
 }
