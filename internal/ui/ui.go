@@ -19,6 +19,8 @@ type RepoResult struct {
 	Loading     bool
 	LoadingText string
 	Fetching    bool   // loading includes an upstream fetch
+	Deleting    bool   // worktree removal in progress; shares LoadingText
+	Queued      bool   // waiting in a bulk worktree removal
 	Reason      string // short explanation for failed, stale or skipped state
 	Sync        *inspect.SyncOutcome
 	MergedInto  string // base branch a linked worktree is merged into
@@ -159,7 +161,16 @@ func BuildRows(results []RepoResult) []Row {
 }
 
 func RowsForRepo(result RepoResult) []Row {
-	if result.Loading {
+	if result.Queued {
+		return []Row{{
+			Kind: "data",
+			Repo: result.Repo.DisplayName,
+			Text: "queued",
+			Tone: "gray",
+			Dim:  true,
+		}}
+	}
+	if result.Loading || result.Deleting {
 		text := loadingText(result)
 		if result.LoadingText != "" {
 			text = result.LoadingText + " " + text
@@ -369,6 +380,9 @@ type BranchSummary struct {
 }
 
 func loadingText(result RepoResult) string {
+	if result.Deleting {
+		return "deleting…"
+	}
 	if result.Fetching {
 		return "fetching…"
 	}
@@ -377,7 +391,10 @@ func loadingText(result RepoResult) string {
 
 // CompactSummary keeps actionable state ahead of branch names in narrow columns.
 func CompactSummary(result RepoResult) string {
-	if result.Loading {
+	if result.Queued {
+		return "queued"
+	}
+	if result.Loading || result.Deleting {
 		return loadingText(result)
 	}
 	if result.Failed {

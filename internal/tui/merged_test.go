@@ -44,7 +44,11 @@ func runBulk(t *testing.T, model Model, command tea.Cmd) Model {
 		if steps > 10 {
 			t.Fatal("bulk deletion did not finish")
 		}
-		updated, next := model.Update(command())
+		message := command()
+		if _, ok := message.(tea.BatchMsg); ok {
+			message = batchedRemoval(t, message)
+		}
+		updated, next := model.Update(message)
 		model, command = updated.(Model), next
 	}
 	return model
@@ -138,15 +142,47 @@ func TestBulkDeleteMergedWorktrees(t *testing.T) {
 	}
 
 	model, command = keyModel(model, "y")
-	if command == nil || model.deleting != "/tmp/web" || model.actionLines()[0] != "Deleting 1/2 merged worktrees…" {
-		t.Fatalf("y must start sequential deletion: %v", model.actionLines())
+	if command == nil || model.deleting != "/tmp/web" || len(model.actionLines()) != 0 {
+		t.Fatalf("y must start sequential deletion without an action bar: %v", model.actionLines())
 	}
+	view = model.View()
+	for _, want := range []string{"deleting · 0/2", "deleting…", "queued", "Deleting… · q quit"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "merged · queued") || strings.Contains(view, "merged · "+model.spin.View()) {
+		t.Fatalf("deleting and queued rows drop the merged note:\n%s", view)
+	}
+	compact := model
+	compact.width, compact.height = 30, 8
+	compact.refresh()
+	if view := compact.View(); !strings.HasSuffix(strings.Split(view, "\n")[0], "0/2") || !strings.Contains(view, "deleting…") {
+		t.Fatalf("compact view must show deletion progress:\n%s", view)
+	}
+	updated, next := model.Update(removalResult(t, command))
+	model = updated.(Model)
+	if view := model.View(); model.deleting != "/tmp/docs" || !strings.Contains(view, "deleting · 1/2") || strings.Contains(view, "queued") {
+		t.Fatalf("second step must advance header progress:\n%s", view)
+	}
+	if updated, tick := model.Update(model.spin.Tick()); tick == nil {
+		t.Fatal("spinner must keep ticking while deleting")
+	} else {
+		model = updated.(Model)
+	}
+	command = next
 	model = runBulk(t, model, command)
 	if !slices.Equal(removed, []string{"/tmp/web", "/tmp/docs"}) || !slices.Equal(checked, []string{"/tmp/web@develop", "/tmp/docs@develop"}) {
 		t.Fatalf("removed %v checked %v", removed, checked)
 	}
 	if model.notice != "Deleted 2 merged worktrees. Branches kept." || model.bulk != nil || model.deleting != "" {
 		t.Fatalf("unexpected completion notice %q", model.notice)
+	}
+	if view := model.View(); !strings.Contains(view, "1/1 done") || !strings.Contains(view, "Branches kept.") {
+		t.Fatalf("header must return to inspection progress:\n%s", view)
+	}
+	if _, tick := model.Update(model.spin.Tick()); tick != nil {
+		t.Fatal("spinner must stop after deletion")
 	}
 	if results := model.displayResults(); len(results) != 1 || results[0].Repo.DisplayName != "cli" || strings.Contains(model.View(), "D merged") {
 		t.Fatal("deleted worktrees must disappear and hide the D hint")

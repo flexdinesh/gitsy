@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/flexdinesh/gitsy/internal/discover"
@@ -30,6 +31,34 @@ func worktreeTestModel() Model {
 	model.next = len(model.results)
 	model.refresh()
 	return model
+}
+
+// removalResult runs a removal command and requires the spinner tick batched with it.
+func removalResult(t *testing.T, command tea.Cmd) tea.Msg {
+	t.Helper()
+	return batchedRemoval(t, command())
+}
+
+func batchedRemoval(t *testing.T, message tea.Msg) tea.Msg {
+	t.Helper()
+	batch, ok := message.(tea.BatchMsg)
+	if !ok {
+		t.Fatal("removal must batch a spinner tick")
+	}
+	var result tea.Msg
+	ticks := 0
+	for _, part := range batch {
+		switch message := part().(type) {
+		case spinner.TickMsg:
+			ticks++
+		default:
+			result = message
+		}
+	}
+	if ticks != 1 || result == nil {
+		t.Fatalf("removal batch: %d ticks, result %#v", ticks, result)
+	}
+	return result
 }
 
 func keyModel(model Model, key string) (Model, tea.Cmd) {
@@ -100,7 +129,7 @@ func TestWorktreeDeleteRemovesExactTargetAndUpdatesBothTabs(t *testing.T) {
 			t.Fatal("deletion must freeze selection and not start duplicates")
 		}
 	}
-	updated, _ := model.Update(command())
+	updated, _ := model.Update(removalResult(t, command))
 	model = updated.(Model)
 	if calls != 1 || len(model.displayResults()) != 0 || model.deleting != "" || !strings.Contains(model.View(), "Branch kept") {
 		t.Fatal("deletion must remove all appearances and acknowledge success")
@@ -140,7 +169,7 @@ func TestWorktreeDeletionChecksFreshStateAndAllowsRecovery(t *testing.T) {
 			if command == nil {
 				t.Fatal("deletion must check fresh Git state")
 			}
-			updated, _ := model.Update(command())
+			updated, _ := model.Update(removalResult(t, command))
 			model = updated.(Model)
 			if len(model.visibleResults()) != 1 || !strings.Contains(model.notice, "protected") {
 				t.Fatal("protected worktree must remain and show the fresh refusal")
@@ -150,7 +179,7 @@ func TestWorktreeDeletionChecksFreshStateAndAllowsRecovery(t *testing.T) {
 			if command == nil {
 				t.Fatal("external cleanup must permit retry despite cached status")
 			}
-			updated, _ = model.Update(command())
+			updated, _ = model.Update(removalResult(t, command))
 			if len(updated.(Model).visibleResults()) != 0 {
 				t.Fatal("fresh unprotected state must permit removal")
 			}
@@ -177,6 +206,40 @@ func TestTabSwitchPreservesDensity(t *testing.T) {
 	}
 }
 
+func TestWorktreeDeletionShowsRowProgress(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{120, 24}, {90, 24}, {30, 8}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			model := worktreeTestModel()
+			model.width, model.height = size.width, size.height
+			model.remove = func(context.Context, string, string, bool) git.WorktreeRemovalResult {
+				return git.WorktreeRemovalResult{Result: git.Result{OK: true}}
+			}
+			model, _ = keyModel(model, "tab")
+			header := model.headerRight()
+			model, command := keyModel(model, "x")
+			view := model.View()
+			if len(model.actionLines()) != 0 || !strings.Contains(view, "deleting…") || strings.Contains(view, "Deleting worktree") ||
+				!strings.Contains(view, "Deleting… · q quit") || model.headerRight() != header {
+				t.Fatalf("row must carry deletion progress without an action bar:\n%s", view)
+			}
+			if size.width == 90 && (model.detailHeight(size.width) != 1 || !strings.Contains(view, "/tmp/web · origin/feature")) {
+				t.Fatalf("detail strip must stay during removal:\n%s", view)
+			}
+			if size.width >= minWidth && !strings.Contains(view, model.spin.View()+" deleting…") {
+				t.Fatalf("ledger row must show the spinner:\n%s", view)
+			}
+			if _, tick := model.Update(model.spin.Tick()); tick == nil {
+				t.Fatal("spinner must tick while deleting")
+			}
+			updated, _ := model.Update(removalResult(t, command))
+			model = updated.(Model)
+			if _, tick := model.Update(model.spin.Tick()); tick != nil || strings.Contains(model.View(), "deleting…") {
+				t.Fatal("spinner and row progress must stop after removal")
+			}
+		})
+	}
+}
+
 func TestWorktreeForceDeleteRequiresConfirmation(t *testing.T) {
 	for _, cancel := range []string{"", "esc", "n", "N"} {
 		t.Run("cancel="+cancel, func(t *testing.T) {
@@ -195,12 +258,12 @@ func TestWorktreeForceDeleteRequiresConfirmation(t *testing.T) {
 			}
 			model, _ = keyModel(model, "tab")
 			model, command := keyModel(model, "x")
-			updated, _ := model.Update(command())
+			updated, _ := model.Update(removalResult(t, command))
 			model = updated.(Model)
 			view := model.View()
 			if calls != 1 || model.confirm == nil || model.deleting != "" ||
 				!strings.Contains(view, target.Path) || !strings.Contains(view, "Discards changed, untracked, ignored, and submodule files") ||
-				!strings.Contains(view, "y force") || len(model.visibleResults()) != 1 {
+				!strings.Contains(view, "y force") || strings.Contains(view, "deleting…") || len(model.visibleResults()) != 1 {
 				t.Fatalf("changed files must show second warning and retain target: %s", view)
 			}
 			for _, key := range []string{"tab", "down", "f", "x", "enter"} {
@@ -224,7 +287,7 @@ func TestWorktreeForceDeleteRequiresConfirmation(t *testing.T) {
 			if command == nil || calls != 1 {
 				t.Fatal("Y must start async force deletion")
 			}
-			updated, _ = model.Update(command())
+			updated, _ = model.Update(removalResult(t, command))
 			model = updated.(Model)
 			if calls != 2 || len(model.displayResults()) != 0 || model.confirm != nil {
 				t.Fatal("force deletion must remove all appearances")
@@ -254,7 +317,7 @@ func TestWorktreeShiftXForceDeletesWithoutConfirmation(t *testing.T) {
 	if command == nil || model.confirm != nil || model.deleting != target.Path || calls != 0 {
 		t.Fatal("X must start async force removal without confirmation")
 	}
-	updated, _ := model.Update(command())
+	updated, _ := model.Update(removalResult(t, command))
 	model = updated.(Model)
 	if calls != 1 || model.confirm != nil || len(model.displayResults()) != 0 || !strings.Contains(model.View(), "Branch kept") {
 		t.Fatal("X must remove dirty worktree without confirmation")
@@ -271,7 +334,7 @@ func TestWorktreeShiftXKeepsProtectionChecks(t *testing.T) {
 	}
 	model, _ = keyModel(model, "tab")
 	model, command := keyModel(model, "X")
-	updated, _ := model.Update(command())
+	updated, _ := model.Update(removalResult(t, command))
 	model = updated.(Model)
 	if len(model.visibleResults()) != 1 || model.confirm != nil || !strings.Contains(model.notice, "locked") {
 		t.Fatal("force deletion refusal must retain row and explain problem")
@@ -313,7 +376,7 @@ func TestWorktreeRemovalErrorRetainsRowAndAllowsRetry(t *testing.T) {
 	}
 	model, _ = keyModel(model, "tab")
 	model, command := keyModel(model, "x")
-	updated, _ := model.Update(command())
+	updated, _ := model.Update(removalResult(t, command))
 	model = updated.(Model)
 	if len(model.visibleResults()) != 1 || !strings.Contains(model.View(), "Delete failed: worktree has changes") {
 		t.Fatal("failure must retain row and explain problem")
@@ -582,7 +645,7 @@ func TestDeleteNoticeNamesWorktree(t *testing.T) {
 		}
 		model, _ = keyModel(model, "tab")
 		model, command := keyModel(model, "x")
-		updated, _ := model.Update(command())
+		updated, _ := model.Update(removalResult(t, command))
 		if got := updated.(Model).notice; got != test.want {
 			t.Fatalf("notice = %q, want %q", got, test.want)
 		}

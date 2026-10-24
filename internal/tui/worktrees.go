@@ -125,7 +125,7 @@ func (model *Model) worktreeKey(key tea.KeyMsg) (bool, tea.Cmd) {
 				}
 				model.bulkConfirm = nil
 				model.bulk = &bulkDeletion{repos: repos}
-				return true, model.nextBulk()
+				return true, tea.Batch(model.nextBulk(), model.spin.Tick)
 			}
 			repo := *model.confirm
 			model.confirm = nil
@@ -204,9 +204,29 @@ func (bulk bulkDeletion) summary() string {
 func (model *Model) startRemoval(repo discover.Repo, force bool) tea.Cmd {
 	model.deleting = repo.Path
 	model.refresh()
-	return func() tea.Msg {
+	return tea.Batch(func() tea.Msg {
 		return worktreeRemovedMsg{repo: repo, result: model.remove(model.ctx, repo.Worktree.MainPath, repo.Path, force)}
+	}, model.spin.Tick)
+}
+
+// withDeletion marks the worktree being removed and those queued behind it.
+func (model Model) withDeletion(result ui.RepoResult) ui.RepoResult {
+	if model.deleting == "" {
+		return result
 	}
+	if result.Repo.Path == model.deleting {
+		result.Deleting = true
+		return result
+	}
+	if model.bulk != nil {
+		for _, repo := range model.bulk.repos[min(model.bulk.next+1, len(model.bulk.repos)):] {
+			if repo.Path == result.Repo.Path {
+				result.Queued = true
+				break
+			}
+		}
+	}
+	return result
 }
 
 func (model Model) tabPlain() string {
@@ -250,10 +270,6 @@ func (model Model) actionLines() []string {
 		}
 		return model.confirmationLines(content)
 	}
-	if model.bulk != nil && model.deleting != "" {
-		progress := fmt.Sprintf("Deleting %d/%d merged worktrees…", model.bulk.next+1, len(model.bulk.repos))
-		return []string{progress, displayGroupPath(model.deleting, model.home)}
-	}
 	if model.confirm != nil {
 		path := displayGroupPath(model.confirm.Path, model.home)
 		lines := model.confirmationLines(content)
@@ -261,9 +277,6 @@ func (model Model) actionLines() []string {
 			return append(wrapPlain("Enlarge terminal to review path.", content), runewidth.TruncateLeft(path, max(0, runewidth.StringWidth(path)-content), "…"))
 		}
 		return lines
-	}
-	if model.deleting != "" {
-		return []string{"Deleting worktree…", displayGroupPath(model.deleting, model.home)}
 	}
 	if model.notice != "" {
 		lines := wrapPlain(displayGroupPath(strings.Join(strings.Fields(model.notice), " "), ""), content)
