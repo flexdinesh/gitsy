@@ -62,6 +62,11 @@ func Failure(result inspect.Result) (string, bool) {
 	return "failed", true
 }
 
+// FailureHint suggests one next step for a failed fetch, or returns "".
+func FailureHint(result inspect.Result) string {
+	return plainText(RemoteHint(RepoResult{Failed: result.Failed, Stale: result.Stale, Reason: result.Reason, Remotes: result.Remotes}))
+}
+
 // RepoLine identifies a repository by name and path on one line.
 func RepoLine(repo discover.Repo) string {
 	return fmt.Sprintf("%s (%s)", plainText(repo.DisplayName), plainText(repo.Path))
