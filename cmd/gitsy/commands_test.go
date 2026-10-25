@@ -111,7 +111,7 @@ func TestSyncCommandFetchFailureStillReportsOtherRepos(t *testing.T) {
 			argv = append(argv, "--verbose")
 		}
 		stdout, stderr, code := plainCommand(t, argv...)
-		if code != 1 || !strings.HasSuffix(stdout, "Synced 0 of 2 repos. 1 skipped, 1 failed.\n") || !strings.Contains(stderr, "gitsy: missing-remote ("+bad+"): remote repo not found") || strings.Contains(stderr, good) {
+		if code != 1 || !strings.HasSuffix(stdout, "Synced 0 of 2 repos. 1 skipped, 1 failed.\n") || !strings.Contains(stderr, "gitsy: missing-remote ("+bad+"): remote repo not found\n  hint: origin deleted or renamed; update or remove the remote\n") || strings.Contains(stderr, good) {
 			t.Fatalf("failed fetch must summarize and name the failed repo before exiting 1: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 		if strings.Contains(stdout, good) != verbose {
@@ -334,7 +334,8 @@ func TestPrintFailuresNamesEachFailedRepo(t *testing.T) {
 		{"diverged", inspect.Result{Status: status.Parse("## main...origin/main [ahead 1, behind 2]")}, ""},
 		{"synced", inspect.Result{Sync: &inspect.SyncOutcome{Kind: "synced", Pulled: 2}}, ""},
 		{"status failure", inspect.Result{Failed: true, Reason: "status failed: timed out"}, "gitsy: repo (/workspace/repo): status failed: timed out\n"},
-		{"fetch failure", inspect.Result{Stale: true, Reason: inspect.ReasonAuth}, "gitsy: repo (/workspace/repo): remote auth needed\n"},
+		{"fetch failure", inspect.Result{Stale: true, Reason: inspect.ReasonAuth}, "gitsy: repo (/workspace/repo): remote auth needed\n  hint: check credentials for the remote\n"},
+		{"github https auth", inspect.Result{Stale: true, Reason: inspect.ReasonAuth, Remotes: inspect.Remotes{Known: true, Count: 1, OriginURL: "https://github.com/o/r"}}, "gitsy: repo (/workspace/repo): remote auth needed\n  hint: run gh auth setup-git, or switch origin to SSH\n"},
 		{"fetch failure without reason", inspect.Result{Stale: true}, "gitsy: repo (/workspace/repo): fetch failed\n"},
 		{"sync failure", inspect.Result{Sync: &inspect.SyncOutcome{Kind: "failed"}, Reason: "sync failed: not possible"}, "gitsy: repo (/workspace/repo): sync failed: not possible\n"},
 	} {

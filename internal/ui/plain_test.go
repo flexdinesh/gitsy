@@ -152,6 +152,32 @@ func TestDeletionSummaryAndPrompt(t *testing.T) {
 	}
 }
 
+func TestFailureHint(t *testing.T) {
+	single := func(url string) inspect.Remotes { return inspect.Remotes{Known: true, Count: 1, OriginURL: url} }
+	for _, test := range []struct {
+		name   string
+		result inspect.Result
+		want   string
+	}{
+		{"github https auth", inspect.Result{Stale: true, Reason: inspect.ReasonAuth, Remotes: single("https://github.com/o/r")}, "run gh auth setup-git, or switch origin to SSH"},
+		{"other https auth", inspect.Result{Stale: true, Reason: inspect.ReasonAuth, Remotes: single("https://git.example.com/o/r.git")}, "configure a credential helper for git.example.com, or use SSH"},
+		{"ssh auth", inspect.Result{Stale: true, Reason: inspect.ReasonAuth, Remotes: single("git@github.com:o/r.git")}, "check SSH key access to github.com"},
+		{"not found", inspect.Result{Stale: true, Reason: inspect.ReasonNotFound, Remotes: single("git@github.com:o/r.git")}, "origin deleted or renamed; update or remove the remote"},
+		{"not found multiple remotes", inspect.Result{Stale: true, Reason: inspect.ReasonNotFound, Remotes: inspect.Remotes{Known: true, Count: 2, OriginURL: "git@github.com:o/r.git"}}, "a remote was deleted or renamed; update or remove it"},
+		{"unreachable", inspect.Result{Stale: true, Reason: inspect.ReasonUnreachable, Remotes: single("git@gitlab.lan:o/r.git")}, "check network/VPN for gitlab.lan"},
+		{"timeout", inspect.Result{Stale: true, Reason: inspect.ReasonFetchTimeout}, "retry, or check network"},
+		{"unclassified fetch failure", inspect.Result{Stale: true, Reason: inspect.ReasonFetchFailed}, ""},
+		{"status failure", inspect.Result{Failed: true, Stale: true, Reason: "status failed: timed out"}, ""},
+		{"sync failure", inspect.Result{Sync: &inspect.SyncOutcome{Kind: "failed"}, Reason: "sync failed: not possible"}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := FailureHint(test.result); got != test.want {
+				t.Fatalf("got %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRepoLine(t *testing.T) {
 	repo := discover.Repo{DisplayName: "api\x1b", Path: "/workspace/api\n"}
 	if got := RepoLine(repo); got != "api\\u001b (/workspace/api\\n)" {

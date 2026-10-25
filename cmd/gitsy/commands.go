@@ -64,6 +64,11 @@ func printFailures(output io.Writer, results []inspect.Result) error {
 			if _, err := fmt.Fprintf(output, "gitsy: %s: %s\n", ui.RepoLine(result.Repo), reason); err != nil {
 				return err
 			}
+			if hint := ui.FailureHint(result); hint != "" {
+				if _, err := fmt.Fprintf(output, "  hint: %s\n", hint); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if failed {
