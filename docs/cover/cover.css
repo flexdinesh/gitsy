@@ -1,0 +1,108 @@
+/* gitsy README cover (972 x 500), dark only. Colors are gitsy's own dark
+   tokens from DESIGN.md; the terminal owns its font and background. */
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-weight: 100 800;
+  src: url("./fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+.gc {
+  & .ss-stage {
+    --gutter: 32px;
+    --ss-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+    --text-hi: #d8e2ed;
+    --text-med: #adbdcd;
+    --text-lo: #8ca2b8;
+    --brand: #63c5b5;
+    --success: #9ac79d;
+    --warning: #e5b567;
+    --info: #8bb4df;
+    --border: #354555;
+    --selection: #203b3b;
+    overflow: hidden;
+    border-radius: 16px;
+    background:
+      radial-gradient(70% 90% at 100% 0%, rgba(99, 197, 181, 0.16), transparent 70%),
+      linear-gradient(160deg, #111d24 0%, #0b1217 60%, #090e12 100%);
+  }
+
+  /* Hero: inset top-left, runs off the bottom */
+  .gc-hero {
+    position: absolute;
+    top: var(--gutter);
+    left: var(--gutter);
+    width: 760px;
+    height: 560px;
+    --ss-term-bg: #121b23;
+    border-radius: 12px;
+  }
+
+  .gc-hero .ss-term__title,
+  .gc-sat .ss-term__title {
+    font-family: var(--ss-mono);
+    color: var(--text-lo);
+  }
+
+  .gc-body.ss-term {
+    gap: 0;
+    padding: 0 16px;
+    font: 13px/20px var(--ss-mono);
+    color: var(--text-hi);
+  }
+
+  .gc-line {
+    white-space: pre;
+    padding: 0 1ch;
+  }
+
+  .gc-line [data-bold] { font-weight: 700; }
+  .t-hi { color: var(--text-hi); }
+  .t-med { color: var(--text-med); }
+  .t-lo { color: var(--text-lo); }
+  .t-brand { color: var(--brand); }
+  .t-ok { color: var(--success); }
+  .t-warn { color: var(--warning); }
+  .t-info { color: var(--info); }
+
+  .gc-head {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .gc-rule {
+    height: 20px;
+    margin: 0 1ch;
+    background: linear-gradient(var(--border), var(--border)) 0 50% / 100% 1px no-repeat;
+  }
+
+  .gc-sel {
+    background: var(--selection);
+  }
+
+  /* Satellite: the same run headless, straddling the hero's right edge over
+     the ledger's empty status margin */
+  .gc-sat {
+    position: absolute;
+    right: var(--gutter);
+    bottom: var(--gutter);
+    width: 370px;
+    --ss-term-bg: #1a2530;
+    border-radius: 10px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+      var(--ss-shadow-satellite);
+  }
+
+  .gc-sat-body.ss-term {
+    padding: 2px 16px 16px;
+    font: 11.5px/1.65 var(--ss-mono);
+    --ss-term-path: var(--info);
+    --ss-term-sigil: var(--brand);
+  }
+
+  .gc-out {
+    color: var(--text-med);
+  }
+}

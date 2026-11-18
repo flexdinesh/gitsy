@@ -1,0 +1,19 @@
+{
+  "name": "gitsy-cover",
+  "private": true,
+  "type": "module",
+  "description": "Source for assets/gitsy-cover.webp, built with the Stageshow kit.",
+  "scripts": {
+    "dev": "vite",
+    "export": "node export.mjs"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.7.0",
+    "playwright-core": "1.48.2",
+    "vite": "6.4.5"
+  }
+}
